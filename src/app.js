@@ -5,6 +5,10 @@ const { requestLogger } = require('./middleware/requestLogger');
 const { errorHandler } = require('./middleware/errorHandler');
 const { NotFoundError } = require('./utils/errors');
 const healthRoutes = require('./routes/healthRoutes');
+const { authRouter } = require('./routes/authRoutes');
+const { productRouter } = require('./routes/productRoutes');
+const { storeRouter } = require('./routes/storeRoutes');
+const { inventoryRouter } = require('./routes/inventoryRoutes');
 
 const app = express();
 
@@ -37,6 +41,10 @@ app.use(requestLogger);
 
 // Routes
 app.use('/', healthRoutes);
+app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/products', productRouter);
+app.use('/api/v1/stores', storeRouter);
+app.use('/api/v1/stores/:storeId/inventory', inventoryRouter);
 
 // 404 handler - pass to error handler for unified response
 app.use((req, res, next) => {

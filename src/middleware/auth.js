@@ -19,6 +19,7 @@ function requireAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, env.JWT_SECRET);
     req.user = {
+      sub: payload.sub,
       id: payload.sub,
       email: payload.email,
       role: payload.role,
@@ -52,6 +53,7 @@ function optionalAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, env.JWT_SECRET);
     req.user = {
+      sub: payload.sub,
       id: payload.sub,
       email: payload.email,
       role: payload.role,
@@ -110,6 +112,7 @@ function requireOwnerOrAdmin(getResourceOwnerId) {
 
 module.exports = {
   requireAuth,
+  authenticate: requireAuth, // Alias for common naming convention
   optionalAuth,
   requireRole,
   requireOwnerOrAdmin,
