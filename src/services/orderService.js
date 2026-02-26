@@ -7,11 +7,20 @@ const {
   countUserOrders,
   listAllOrders,
   countAllOrders,
+  updateOrderStatus,
+  insertStatusHistory,
+  getOrderRaw,
+  softDeleteOrder,
 } = require('../models/orderModel');
+const {
+  releaseInventoryReservation,
+  deductInventoryOnDelivery,
+} = require('../models/inventoryModel');
 const {
   NotFoundError,
   OutOfStockError,
   ValidationError,
+  AuthError,
 } = require('../utils/errors');
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -373,11 +382,145 @@ async function listAllOrdersAdmin({ status, storeId, page = 1, pageSize = 20 }) 
   };
 }
 
+// ── Valid status transitions ────────────────────────────────────────
+const VALID_TRANSITIONS = {
+  pending:          ['confirmed', 'cancelled'],
+  confirmed:        ['picking', 'cancelled'],
+  picking:          ['out_for_delivery'],
+  out_for_delivery: ['delivered'],
+  delivered:        [],  // terminal
+  cancelled:        []   // terminal
+};
+
+/**
+ * Change an order's status with full transition validation,
+ * inventory side-effects (cancel → release, deliver → deduct),
+ * and low-stock alerts.
+ */
+async function changeOrderStatus({ orderId, newStatus, actor }) {
+  const requestId = logger.getRequestId?.() || 'no-cid';
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // 1) Fetch order with items (inside transaction)
+    const order = await getOrderRaw(client, orderId);
+    if (!order) {
+      throw new NotFoundError('Order not found');
+    }
+
+    // 2) Ownership check for customer cancellation
+    if (actor.role === 'customer' && Number(order.user_id) !== Number(actor.id)) {
+      throw new AuthError('You can only modify your own orders');
+    }
+
+    // 3) Validate transition
+    const allowed = VALID_TRANSITIONS[order.status] || [];
+    if (!allowed.includes(newStatus)) {
+      throw new ValidationError(
+        `Cannot transition from '${order.status}' to '${newStatus}'`
+      );
+    }
+
+    // 4) Customer can only cancel
+    if (actor.role === 'customer' && newStatus !== 'cancelled') {
+      throw new AuthError('Customers can only cancel orders');
+    }
+
+    // 5) Handle inventory side-effects
+    const items = order.items.filter(Boolean); // guard against null from LEFT JOIN
+
+    if (newStatus === 'cancelled') {
+      // Release reservations
+      for (const item of items) {
+        await releaseInventoryReservation(
+          client,
+          order.store_id,
+          Number(item.productId),
+          item.quantity
+        );
+      }
+      logger.info('Inventory reservations released on cancel', {
+        requestId,
+        orderId,
+        storeId: order.store_id
+      });
+    }
+
+    if (newStatus === 'delivered') {
+      // Permanently deduct inventory + check low stock
+      for (const item of items) {
+        const updated = await deductInventoryOnDelivery(
+          client,
+          order.store_id,
+          Number(item.productId),
+          item.quantity
+        );
+
+        if (!updated) {
+          throw new Error(
+            `Failed to deduct inventory for product ${item.productId}`
+          );
+        }
+
+        // LOW STOCK ALERT
+        if (updated.quantity <= updated.low_stock_threshold) {
+          logger.warn('Low stock alert', {
+            requestId,
+            storeId: order.store_id,
+            productId: updated.product_id,
+            remainingQuantity: updated.quantity,
+            threshold: updated.low_stock_threshold
+          });
+        }
+      }
+    }
+
+    // 6) Update order status
+    const updatedOrder = await updateOrderStatus(client, orderId, newStatus);
+
+    // 7) Insert status history
+    await insertStatusHistory(client, {
+      orderId,
+      fromStatus: order.status,
+      toStatus: newStatus,
+      changedBy: actor.id
+    });
+
+    await client.query('COMMIT');
+
+    logger.info('Order status changed', {
+      requestId,
+      orderId,
+      fromStatus: order.status,
+      toStatus: newStatus,
+      changedBy: actor.id,
+      actorRole: actor.role
+    });
+
+    return updatedOrder;
+
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    logger.error('Order status change failed', {
+      requestId,
+      orderId,
+      newStatus,
+      error: err.message
+    });
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   placeOrder,
   getOrder,
   listOrdersForUser,
   listAllOrdersAdmin,
+  changeOrderStatus,
   calculateSurgeMultiplier,
   calculateEtaMinutes,
 };

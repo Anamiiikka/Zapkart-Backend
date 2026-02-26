@@ -1,4 +1,4 @@
-const { placeOrder, getOrder, listOrdersForUser, listAllOrdersAdmin } = require('../services/orderService');
+const { placeOrder, getOrder, listOrdersForUser, listAllOrdersAdmin, changeOrderStatus } = require('../services/orderService');
 const { findUserById } = require('../models/userModel');
 const { pool } = require('../config/db');
 const { NotFoundError, ValidationError } = require('../utils/errors');
@@ -58,11 +58,46 @@ async function placeOrderHandler(req, res, next) {
   }
 }
 
+async function updateOrderStatusHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const { status } = req.body;
+
+    const updated = await changeOrderStatus({
+      orderId,
+      newStatus: status,
+      actor: req.user
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function cancelOrderHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+
+    const updated = await changeOrderStatus({
+      orderId,
+      newStatus: 'cancelled',
+      actor: req.user
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   placeOrderHandler,
   getOrderHandler,
   listOrdersHandler,
   listAllOrdersHandler,
+  updateOrderStatusHandler,
+  cancelOrderHandler,
 };
 
 async function getOrderHandler(req, res, next) {

@@ -154,10 +154,62 @@ async function countAllOrders({ status, storeId }) {
   return result.rows[0].count;
 }
 
+async function updateOrderStatus(client, orderId, newStatus) {
+  const result = await client.query(
+    `UPDATE orders
+     SET status = $2,
+         delivered_at = CASE WHEN $2 = 'delivered' THEN NOW() ELSE delivered_at END
+     WHERE id = $1
+       AND deleted_at IS NULL
+     RETURNING *`,
+    [orderId, newStatus]
+  );
+  return result.rows[0] || null;
+}
+
+async function insertStatusHistory(client, { orderId, fromStatus, toStatus, changedBy }) {
+  await client.query(
+    `INSERT INTO order_status_history (order_id, from_status, to_status, changed_by)
+     VALUES ($1, $2, $3, $4)`,
+    [orderId, fromStatus, toStatus, changedBy]
+  );
+}
+
+async function getOrderRaw(client, orderId) {
+  const result = await client.query(
+    `SELECT o.*,
+       json_agg(
+         json_build_object(
+           'productId', oi.product_id,
+           'quantity', oi.quantity
+         )
+       ) AS items
+     FROM orders o
+     LEFT JOIN order_items oi ON oi.order_id = o.id
+     WHERE o.id = $1 AND o.deleted_at IS NULL
+     GROUP BY o.id`,
+    [orderId]
+  );
+  return result.rows[0] || null;
+}
+
+async function softDeleteOrder(orderId) {
+  await pool.query(
+    `UPDATE orders
+     SET deleted_at = NOW()
+     WHERE id = $1`,
+    [orderId]
+  );
+}
+
 module.exports = {
   getOrderById,
   listUserOrders,
   countUserOrders,
   listAllOrders,
   countAllOrders,
+  updateOrderStatus,
+  insertStatusHistory,
+  getOrderRaw,
+  softDeleteOrder,
 };

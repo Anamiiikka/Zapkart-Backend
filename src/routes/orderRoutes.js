@@ -7,6 +7,8 @@ const {
   getOrderHandler,
   listOrdersHandler,
   listAllOrdersHandler,
+  updateOrderStatusHandler,
+  cancelOrderHandler,
 } = require('../controllers/orderController');
 
 const router = express.Router();
@@ -41,6 +43,16 @@ const orderIdSchema = z.object({
   id: z.string().regex(/^\d+$/),
 });
 
+const updateStatusSchema = z.object({
+  status: z.enum([
+    'confirmed',
+    'picking',
+    'out_for_delivery',
+    'delivered',
+    'cancelled'
+  ])
+});
+
 const listQuerySchema = z.object({
   page: z.string().optional(),
   pageSize: z.string().optional(),
@@ -73,5 +85,23 @@ router.get('/:id', requireAuth, validate(orderIdSchema, 'params'), getOrderHandl
 
 // Place a new order (authenticated customers)
 router.post('/', requireAuth, validate(placeOrderSchema), placeOrderHandler);
+
+// Admin/agent: update order status
+router.patch(
+  '/:id/status',
+  requireAuth,
+  requireRole('admin', 'agent'),
+  validate(orderIdSchema, 'params'),
+  validate(updateStatusSchema),
+  updateOrderStatusHandler
+);
+
+// Customer: cancel own order
+router.post(
+  '/:id/cancel',
+  requireAuth,
+  validate(orderIdSchema, 'params'),
+  cancelOrderHandler
+);
 
 module.exports = { orderRouter: router };
