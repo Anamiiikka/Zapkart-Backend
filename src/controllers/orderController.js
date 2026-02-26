@@ -1,4 +1,4 @@
-const { placeOrder } = require('../services/orderService');
+const { placeOrder, getOrder, listOrdersForUser, listAllOrdersAdmin } = require('../services/orderService');
 const { findUserById } = require('../models/userModel');
 const { pool } = require('../config/db');
 const { NotFoundError, ValidationError } = require('../utils/errors');
@@ -60,4 +60,46 @@ async function placeOrderHandler(req, res, next) {
 
 module.exports = {
   placeOrderHandler,
+  getOrderHandler,
+  listOrdersHandler,
+  listAllOrdersHandler,
 };
+
+async function getOrderHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const order = await getOrder(orderId, req.user);
+    res.json({ success: true, data: order });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listOrdersHandler(req, res, next) {
+  try {
+    const page = Number(req.query.page) || 1;
+    const pageSize = Number(req.query.pageSize) || 20;
+
+    const result = await listOrdersForUser(req.user.id, page, pageSize);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listAllOrdersHandler(req, res, next) {
+  try {
+    const { status, storeId, page = '1', pageSize = '20' } = req.query;
+
+    const result = await listAllOrdersAdmin({
+      status: status || undefined,
+      storeId: storeId ? Number(storeId) : undefined,
+      page: Number(page),
+      pageSize: Number(pageSize),
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}

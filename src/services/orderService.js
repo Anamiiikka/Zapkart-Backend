@@ -2,6 +2,13 @@ const logger = require('../config/logger');
 const { pool } = require('../config/db');
 const { findBestStore } = require('./storeMatchingService');
 const {
+  getOrderById,
+  listUserOrders,
+  countUserOrders,
+  listAllOrders,
+  countAllOrders,
+} = require('../models/orderModel');
+const {
   NotFoundError,
   OutOfStockError,
   ValidationError,
@@ -303,20 +310,74 @@ async function placeOrder({ user, items, deliveryAddress, userLocation, idempote
   }
 }
 
-// ── Stubs — implement in Phase 5.3 ─────────────────────────────────
+// ── Read operations (Phase 5.3) ─────────────────────────────────────
 
+/**
+ * Get a single order by ID.
+ * Customers can only see their own; admins can see any.
+ */
 async function getOrder(orderId, user) {
-  throw new Error('Not implemented — Phase 5.3');
+  const isAdmin = user.role === 'admin';
+  const order = await getOrderById(orderId, user.id, isAdmin);
+
+  if (!order) {
+    throw new NotFoundError('Order not found');
+  }
+
+  return order;
 }
 
+/**
+ * Paginated list of orders for a specific customer.
+ */
 async function listOrdersForUser(userId, page = 1, pageSize = 20) {
-  throw new Error('Not implemented — Phase 5.3');
+  const limit = pageSize;
+  const offset = (page - 1) * pageSize;
+
+  const [items, total] = await Promise.all([
+    listUserOrders(userId, limit, offset),
+    countUserOrders(userId),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    },
+  };
+}
+
+/**
+ * Paginated list of all orders (admin only), with optional filters.
+ */
+async function listAllOrdersAdmin({ status, storeId, page = 1, pageSize = 20 }) {
+  const limit = pageSize;
+  const offset = (page - 1) * pageSize;
+
+  const [items, total] = await Promise.all([
+    listAllOrders({ status, storeId, limit, offset }),
+    countAllOrders({ status, storeId }),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    },
+  };
 }
 
 module.exports = {
   placeOrder,
   getOrder,
   listOrdersForUser,
+  listAllOrdersAdmin,
   calculateSurgeMultiplier,
   calculateEtaMinutes,
 };

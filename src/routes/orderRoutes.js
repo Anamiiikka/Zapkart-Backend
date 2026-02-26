@@ -1,8 +1,13 @@
 const express = require('express');
 const { z } = require('zod');
 const { validate } = require('../middleware/validate');
-const { requireAuth } = require('../middleware/auth');
-const { placeOrderHandler } = require('../controllers/orderController');
+const { requireAuth, requireRole } = require('../middleware/auth');
+const {
+  placeOrderHandler,
+  getOrderHandler,
+  listOrdersHandler,
+  listAllOrdersHandler,
+} = require('../controllers/orderController');
 
 const router = express.Router();
 
@@ -31,6 +36,40 @@ const placeOrderSchema = z.object({
   longitude: z.number().optional(),
   idempotencyKey: z.string().optional(),
 });
+
+const orderIdSchema = z.object({
+  id: z.string().regex(/^\d+$/),
+});
+
+const listQuerySchema = z.object({
+  page: z.string().optional(),
+  pageSize: z.string().optional(),
+});
+
+const adminListQuerySchema = z.object({
+  status: z.enum([
+    'pending', 'confirmed', 'picking',
+    'out_for_delivery', 'delivered', 'cancelled',
+  ]).optional(),
+  storeId: z.string().regex(/^\d+$/).optional(),
+  page: z.string().optional(),
+  pageSize: z.string().optional(),
+});
+
+// Admin: list all orders (must be before /:id to avoid matching "admin")
+router.get(
+  '/admin/all',
+  requireAuth,
+  requireRole('admin'),
+  validate(adminListQuerySchema, 'query'),
+  listAllOrdersHandler
+);
+
+// Customer: list my orders
+router.get('/', requireAuth, validate(listQuerySchema, 'query'), listOrdersHandler);
+
+// Get order by ID (customer sees own, admin sees any)
+router.get('/:id', requireAuth, validate(orderIdSchema, 'params'), getOrderHandler);
 
 // Place a new order (authenticated customers)
 router.post('/', requireAuth, validate(placeOrderSchema), placeOrderHandler);
