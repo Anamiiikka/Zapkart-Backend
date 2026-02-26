@@ -2,16 +2,30 @@
 const { pool } = require('../src/config/db');
 
 async function clearData() {
-  // Order matters because of foreign keys
-  await pool.query('DELETE FROM refresh_tokens');
-  await pool.query('DELETE FROM order_items');
-  await pool.query('DELETE FROM orders');
-  await pool.query('DELETE FROM inventory');
-  await pool.query('DELETE FROM delivery_agents');
-  await pool.query('DELETE FROM products');
-  await pool.query('DELETE FROM dark_stores');
-  await pool.query('DELETE FROM users');
-  console.log('Cleared existing data');
+  // TRUNCATE with RESTART IDENTITY so IDs always start at 1 after re-seed
+  // Use DO block to skip tables that don't exist yet (e.g. before latest migration)
+  await pool.query(`
+    DO $$
+    BEGIN
+      -- conditionally truncate order_status_history if it exists
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_status_history') THEN
+        TRUNCATE order_status_history RESTART IDENTITY CASCADE;
+      END IF;
+    END $$;
+  `);
+  await pool.query(`
+    TRUNCATE
+      refresh_tokens,
+      order_items,
+      orders,
+      inventory,
+      delivery_agents,
+      products,
+      dark_stores,
+      users
+    RESTART IDENTITY CASCADE
+  `);
+  console.log('Cleared existing data (sequences reset)');
 }
 
 async function seed() {

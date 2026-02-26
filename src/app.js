@@ -9,6 +9,7 @@ const { authRouter } = require('./routes/authRoutes');
 const { productRouter } = require('./routes/productRoutes');
 const { storeRouter } = require('./routes/storeRoutes');
 const { inventoryRouter } = require('./routes/inventoryRoutes');
+const { orderRouter } = require('./routes/orderRoutes');
 
 const app = express();
 
@@ -45,6 +46,7 @@ app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/products', productRouter);
 app.use('/api/v1/stores', storeRouter);
 app.use('/api/v1/stores/:storeId/inventory', inventoryRouter);
+app.use('/api/v1/orders', orderRouter);
 
 // 404 handler - pass to error handler for unified response
 app.use((req, res, next) => {

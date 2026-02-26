@@ -89,6 +89,16 @@ CREATE TABLE order_items (
     subtotal    NUMERIC(10, 2) NOT NULL
 );
 
+-- ORDER STATUS HISTORY (audit trail for every status transition)
+CREATE TABLE order_status_history (
+    id            BIGSERIAL PRIMARY KEY,
+    order_id      BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    from_status   VARCHAR(30),          -- NULL for initial placement
+    to_status     VARCHAR(30) NOT NULL,
+    changed_by    BIGINT REFERENCES users(id),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- DELIVERY AGENTS
 CREATE TABLE delivery_agents (
     id                BIGSERIAL PRIMARY KEY,

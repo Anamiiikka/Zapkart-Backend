@@ -91,13 +91,15 @@ async function findBestStore(userId, items, userLocation) {
       [candidateIds, productIds]
     );
 
-    // Build nested map: storeId → productId → row
+    // Build nested map: storeId → productId → row  (coerce IDs to numbers)
     const inventoryByStore = new Map();
     for (const row of inventoryResult.rows) {
-      if (!inventoryByStore.has(row.store_id)) {
-        inventoryByStore.set(row.store_id, new Map());
+      const sid = Number(row.store_id);
+      const pid = Number(row.product_id);
+      if (!inventoryByStore.has(sid)) {
+        inventoryByStore.set(sid, new Map());
       }
-      inventoryByStore.get(row.store_id).set(row.product_id, row);
+      inventoryByStore.get(sid).set(pid, row);
     }
 
     // 2b) Batch-fetch recent order counts for all candidates in one query
@@ -111,11 +113,12 @@ async function findBestStore(userId, items, userLocation) {
       [candidateIds, String(LOAD_WINDOW_MINUTES)]
     );
 
-    const loadByStore = new Map(loadResult.rows.map((r) => [r.store_id, r.active_count]));
+    const loadByStore = new Map(loadResult.rows.map((r) => [Number(r.store_id), r.active_count]));
 
     // 2c) Iterate candidates, filter by inventory, compute composite score
     for (const store of candidates) {
-      const storeInv = inventoryByStore.get(store.id);
+      const storeId = Number(store.id);
+      const storeInv = inventoryByStore.get(storeId);
 
       // Inventory fulfilment check
       let canFulfill = true;
@@ -138,7 +141,7 @@ async function findBestStore(userId, items, userLocation) {
       }
 
       // Load factor
-      const recentOrders = loadByStore.get(store.id) || 0;
+      const recentOrders = loadByStore.get(storeId) || 0;
       const loadRatio =
         store.max_orders_per_slot > 0 ? recentOrders / store.max_orders_per_slot : 0;
       const cappedLoad = Math.min(loadRatio, 1.0);

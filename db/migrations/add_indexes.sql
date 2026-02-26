@@ -25,6 +25,10 @@ CREATE INDEX idx_order_items_order_id
 CREATE INDEX idx_delivery_agents_store_status
   ON delivery_agents (store_id, status);
 
+-- Order status history: lookup by order
+CREATE INDEX idx_order_status_history_order_id
+  ON order_status_history (order_id, created_at);
+
 -- Refresh tokens: by user and expiry
 CREATE INDEX idx_refresh_tokens_user_id
   ON refresh_tokens (user_id);
