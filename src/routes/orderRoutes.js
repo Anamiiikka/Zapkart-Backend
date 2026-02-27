@@ -10,6 +10,7 @@ const {
   updateOrderStatusHandler,
   cancelOrderHandler,
   assignAgentHandler,
+  autoAssignOrderHandler,
   agentNextStatusHandler,
   agentOrderDetailsHandler,
   agentMyOrdersHandler,
@@ -139,6 +140,15 @@ router.patch(
   validate(orderIdSchema, 'params'),
   validate(assignAgentSchema),
   assignAgentHandler
+);
+
+// Admin: auto-assign best available agent to order
+router.post(
+  '/:id/auto-assign',
+  requireAuth,
+  requireRole('admin'),
+  validate(orderIdSchema, 'params'),
+  autoAssignOrderHandler
 );
 
 // Agent: advance own order to next status

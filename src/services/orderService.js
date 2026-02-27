@@ -529,6 +529,7 @@ module.exports = {
   calculateSurgeMultiplier,
   calculateEtaMinutes,
   assignAgentToOrderService,
+  autoAssignOrder,
   agentNextStatusService,
   getAgentOrderDetails,
   listAgentOrders,
@@ -681,6 +682,141 @@ async function agentNextStatusService(orderId, actor) {
     return updated;
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Auto-assign the best available agent to a confirmed/pending order.
+ *
+ * Strategy: agents assigned to the same store, available, within 10 km,
+ * ordered by (fewest pending orders ASC, closest to store ASC).
+ * Uses PostGIS ST_Distance for accurate geo calculations.
+ *
+ * @param {number} orderId
+ * @param {Object} actor - req.user (must be admin)
+ * @returns {Promise<Object>} updated order + assigned agent details
+ */
+const AUTO_ASSIGN_RADIUS_METERS = 10_000; // 10 km search radius
+
+async function autoAssignOrder(orderId, actor) {
+  if (actor.role !== 'admin') {
+    throw new AuthError('Only admins can auto-assign agents');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Validate order
+    const order = await getOrderRaw(client, orderId);
+    if (!order) throw new NotFoundError('Order not found');
+
+    if (!['pending', 'confirmed'].includes(order.status)) {
+      throw new ValidationError(
+        `Cannot auto-assign: order is '${order.status}', must be 'pending' or 'confirmed'`
+      );
+    }
+    if (order.agent_id) {
+      throw new ValidationError('Order already has an agent assigned');
+    }
+
+    // 2. Find best agent via PostGIS
+    //    - Must belong to the same store
+    //    - Must be 'available'
+    //    - Must have lat/lng set
+    //    - Within search radius of the store
+    //    - Sorted by fewest active orders, then closest to store
+    const bestAgentResult = await client.query(
+      `SELECT
+         a.id            AS agent_id,
+         a.name          AS agent_name,
+         a.phone         AS agent_phone,
+         ST_Distance(
+           ST_SetSRID(ST_MakePoint(a.current_longitude, a.current_latitude), 4326)::geography,
+           ds.location
+         ) / 1000        AS distance_km,
+         COALESCE(oc.pending_count, 0) AS pending_orders
+       FROM agents a
+       JOIN dark_stores ds ON ds.id = a.store_id
+       LEFT JOIN (
+         SELECT agent_id, COUNT(*) AS pending_count
+         FROM orders
+         WHERE status IN ('assigned', 'picking', 'out_for_delivery')
+           AND deleted_at IS NULL
+         GROUP BY agent_id
+       ) oc ON oc.agent_id = a.id
+       WHERE a.store_id = $1
+         AND a.status = 'available'
+         AND a.current_latitude  IS NOT NULL
+         AND a.current_longitude IS NOT NULL
+         AND ST_DWithin(
+           ST_SetSRID(ST_MakePoint(a.current_longitude, a.current_latitude), 4326)::geography,
+           ds.location,
+           $2
+         )
+       ORDER BY pending_orders ASC,
+                distance_km   ASC
+       LIMIT 1`,
+      [order.store_id, AUTO_ASSIGN_RADIUS_METERS]
+    );
+
+    if (bestAgentResult.rows.length === 0) {
+      throw new NotFoundError(
+        `No available agents within ${AUTO_ASSIGN_RADIUS_METERS / 1000} km of store`
+      );
+    }
+
+    const bestAgent = bestAgentResult.rows[0];
+
+    // 3. Assign agent to order
+    await assignAgentToOrder(client, orderId, bestAgent.agent_id);
+
+    // 4. Mark agent as busy
+    await client.query(
+      `UPDATE agents SET status = 'busy', updated_at = NOW() WHERE id = $1`,
+      [bestAgent.agent_id]
+    );
+
+    // 5. Record status history
+    await insertStatusHistory(client, {
+      orderId,
+      fromStatus: order.status,
+      toStatus: 'assigned',
+      changedBy: actor.id,
+    });
+
+    await client.query('COMMIT');
+
+    logger.info('Agent auto-assigned to order', {
+      orderId,
+      agentId: bestAgent.agent_id,
+      agentName: bestAgent.agent_name,
+      distanceKm: parseFloat(bestAgent.distance_km).toFixed(2),
+      pendingOrders: bestAgent.pending_orders,
+      fromStatus: order.status,
+    });
+
+    // 6. Return enriched result
+    const updatedOrder = await findOrderByIdWithAgent(orderId);
+    return {
+      ...updatedOrder,
+      assignedAgent: {
+        id: Number(bestAgent.agent_id),
+        name: bestAgent.agent_name,
+        phone: bestAgent.agent_phone,
+        distanceKm: parseFloat(parseFloat(bestAgent.distance_km).toFixed(2)),
+        pendingOrders: bestAgent.pending_orders,
+      },
+    };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    logger.error('Auto-assign failed', {
+      orderId,
+      error: err.message,
+    });
     throw err;
   } finally {
     client.release();

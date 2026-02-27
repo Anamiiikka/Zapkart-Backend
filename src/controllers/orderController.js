@@ -5,6 +5,7 @@ const {
   listAllOrdersAdmin,
   changeOrderStatus,
   assignAgentToOrderService,
+  autoAssignOrder,
   agentNextStatusService,
   getAgentOrderDetails,
   listAgentOrders,
@@ -109,12 +110,23 @@ module.exports = {
   updateOrderStatusHandler,
   cancelOrderHandler,
   assignAgentHandler,
+  autoAssignOrderHandler,
   agentNextStatusHandler,
   agentOrderDetailsHandler,
   agentMyOrdersHandler,
 };
 
 // ── Agent-order handlers ────────────────────────────────────────────
+
+async function autoAssignOrderHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const result = await autoAssignOrder(orderId, req.user);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
 
 async function assignAgentHandler(req, res, next) {
   try {
