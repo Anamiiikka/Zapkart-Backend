@@ -21,9 +21,12 @@ CREATE INDEX idx_orders_store_id_status_placed_at
 CREATE INDEX idx_order_items_order_id
   ON order_items (order_id);
 
--- Delivery agents: by store and status (for load/availability checks)
-CREATE INDEX idx_delivery_agents_store_status
-  ON delivery_agents (store_id, status);
+-- Agents: by store and status (for load/availability checks)
+CREATE INDEX IF NOT EXISTS idx_agents_store_status
+  ON agents (store_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_agents_user_id
+  ON agents (user_id);
 
 -- Order status history: lookup by order
 CREATE INDEX idx_order_status_history_order_id

@@ -8,12 +8,13 @@ CREATE TABLE users (
     email           VARCHAR(255) NOT NULL UNIQUE,
     password_hash   VARCHAR(255) NOT NULL,
     phone           VARCHAR(20),
-    role            VARCHAR(20) NOT NULL DEFAULT 'customer', -- 'customer' | 'admin'
+    role            VARCHAR(20) NOT NULL DEFAULT 'customer', -- 'customer' | 'admin' | 'agent'
     delivery_address TEXT,
     latitude        DOUBLE PRECISION,
     longitude       DOUBLE PRECISION,
-    -- optional: you can add location later if you want PostGIS for users too
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    agent_id        BIGINT UNIQUE,          -- 1-1 link to agents table (set after agent creation)
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- DARK STORES
@@ -99,18 +100,28 @@ CREATE TABLE order_status_history (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- DELIVERY AGENTS
-CREATE TABLE delivery_agents (
+-- AGENTS (delivery agents linked 1-1 to users)
+CREATE TABLE agents (
     id                BIGSERIAL PRIMARY KEY,
+    user_id           BIGINT UNIQUE REFERENCES users(id) ON DELETE SET NULL,
+    store_id          BIGINT NOT NULL REFERENCES dark_stores(id) ON DELETE CASCADE,
     name              VARCHAR(100) NOT NULL,
-    phone             VARCHAR(20),
-    store_id          BIGINT NOT NULL REFERENCES dark_stores(id),
-    status            VARCHAR(20) NOT NULL DEFAULT 'available', -- 'available' | 'busy'
+    phone             VARCHAR(20) NOT NULL,
+    status            VARCHAR(20) NOT NULL DEFAULT 'available',
     current_latitude  DOUBLE PRECISION,
     current_longitude DOUBLE PRECISION,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT chk_agent_status CHECK (status IN ('available', 'busy'))
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_agent_status CHECK (status IN ('available', 'busy', 'inactive'))
 );
+
+-- Back-link: users.agent_id -> agents.id
+ALTER TABLE users
+    ADD CONSTRAINT fk_users_agent FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_agents_store_id ON agents(store_id);
+CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
+CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
 
 -- REFRESH TOKENS (for JWT rotation)
 CREATE TABLE refresh_tokens (

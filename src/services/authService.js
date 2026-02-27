@@ -78,7 +78,8 @@ async function login({ email, password }) {
 async function issueTokensForUser(user) {
   const payload = {
     sub: user.id,
-    role: user.role
+    role: user.role,
+    agentId: user.agent_id || null
   };
 
   const accessToken = signAccessToken(payload);
@@ -123,8 +124,8 @@ async function refresh({ token }) {
   // Token rotation: revoke the old token
   await revokeRefreshToken(stored.id);
 
-  // Issue new tokens
-  const payload = { sub: decoded.sub, role: decoded.role };
+  // Issue new tokens — include agentId if present on original token
+  const payload = { sub: decoded.sub, role: decoded.role, agentId: decoded.agentId || null };
   const accessToken = signAccessToken(payload);
   const newRefreshToken = signRefreshToken(payload);
 

@@ -23,6 +23,7 @@ function requireAuth(req, res, next) {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
+      agentId: payload.agentId || null,
     };
     return next();
   } catch (err) {
@@ -57,6 +58,7 @@ function optionalAuth(req, res, next) {
       id: payload.sub,
       email: payload.email,
       role: payload.role,
+      agentId: payload.agentId || null,
     };
   } catch {
     req.user = null;
