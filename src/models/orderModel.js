@@ -26,6 +26,7 @@ async function getOrderById(orderId, userId, isAdmin) {
        o.estimated_delivery_minutes,
        o.placed_at,
        o.delivered_at,
+       o.agent_id,
        (SELECT json_agg(
          json_build_object(
            'id', oi.id,
@@ -63,7 +64,7 @@ async function listUserOrders(userId, limit, offset) {
     `SELECT
        id, store_id, status, total_amount, delivery_fee,
        surge_multiplier, estimated_delivery_minutes,
-       placed_at, delivered_at
+       placed_at, delivered_at, agent_id
      FROM orders
      WHERE user_id = $1
        AND deleted_at IS NULL
@@ -90,7 +91,7 @@ async function countUserOrders(userId) {
 /**
  * List all orders (admin) with optional status/store filters.
  */
-async function listAllOrders({ status, storeId, limit, offset }) {
+async function listAllOrders({ status, storeId, agentId, limit, offset }) {
   const conditions = ['deleted_at IS NULL'];
   const params = [];
   let idx = 1;
@@ -107,13 +108,19 @@ async function listAllOrders({ status, storeId, limit, offset }) {
     idx++;
   }
 
+  if (agentId) {
+    conditions.push(`agent_id = $${idx}`);
+    params.push(agentId);
+    idx++;
+  }
+
   params.push(limit);
   params.push(offset);
 
   const result = await pool.query(
     `SELECT
        id, user_id, store_id, status, total_amount,
-       delivery_fee, surge_multiplier, placed_at, delivered_at
+       delivery_fee, surge_multiplier, placed_at, delivered_at, agent_id
      FROM orders
      WHERE ${conditions.join(' AND ')}
      ORDER BY placed_at DESC
@@ -127,7 +134,7 @@ async function listAllOrders({ status, storeId, limit, offset }) {
 /**
  * Count all orders (admin) with optional filters (for pagination).
  */
-async function countAllOrders({ status, storeId }) {
+async function countAllOrders({ status, storeId, agentId }) {
   const conditions = ['deleted_at IS NULL'];
   const params = [];
   let idx = 1;
@@ -141,6 +148,12 @@ async function countAllOrders({ status, storeId }) {
   if (storeId) {
     conditions.push(`store_id = $${idx}`);
     params.push(storeId);
+    idx++;
+  }
+
+  if (agentId) {
+    conditions.push(`agent_id = $${idx}`);
+    params.push(agentId);
     idx++;
   }
 
@@ -157,11 +170,13 @@ async function countAllOrders({ status, storeId }) {
 async function updateOrderStatus(client, orderId, newStatus) {
   const result = await client.query(
     `UPDATE orders
-     SET status = $2,
-         delivered_at = CASE WHEN $2 = 'delivered' THEN NOW() ELSE delivered_at END
+     SET status = $2::text,
+         delivered_at = CASE WHEN $2::text = 'delivered' THEN NOW() ELSE delivered_at END
      WHERE id = $1
        AND deleted_at IS NULL
-     RETURNING *`,
+     RETURNING id, user_id, store_id, status, total_amount, delivery_fee,
+              surge_multiplier, delivery_address, estimated_delivery_minutes,
+              placed_at, delivered_at, agent_id`,
     [orderId, newStatus]
   );
   return result.rows[0] || null;
@@ -202,6 +217,74 @@ async function softDeleteOrder(orderId) {
   );
 }
 
+// ── Agent-order integration ─────────────────────────────────────────
+
+/**
+ * Get order with joined agent details.
+ */
+async function findOrderByIdWithAgent(orderId) {
+  const result = await pool.query(
+    `SELECT
+       o.id, o.user_id, o.store_id, o.status, o.total_amount,
+       o.delivery_fee, o.surge_multiplier, o.delivery_address,
+       o.estimated_delivery_minutes, o.placed_at, o.delivered_at, o.agent_id,
+       a.name  AS agent_name,
+       a.phone AS agent_phone,
+       a.current_latitude  AS agent_latitude,
+       a.current_longitude AS agent_longitude
+     FROM orders o
+     LEFT JOIN agents a ON a.id = o.agent_id
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
+    [orderId]
+  );
+  return result.rows[0] || null;
+}
+
+/**
+ * List orders assigned to a specific agent, optionally filtered by status.
+ */
+async function findAgentOrders(agentId, status, limit = 50, offset = 0) {
+  const conditions = ['agent_id = $1', 'deleted_at IS NULL'];
+  const params = [agentId];
+  let idx = 2;
+
+  if (status) {
+    conditions.push(`status = $${idx}`);
+    params.push(status);
+    idx++;
+  }
+
+  params.push(limit, offset);
+
+  const result = await pool.query(
+    `SELECT id, user_id, store_id, status, total_amount,
+            delivery_fee, delivery_address, estimated_delivery_minutes,
+            placed_at, delivered_at, agent_id
+     FROM orders
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY placed_at DESC
+     LIMIT $${idx} OFFSET $${idx + 1}`,
+    params
+  );
+  return result.rows;
+}
+
+/**
+ * Atomically assign an agent to an order and set status = 'assigned'.
+ */
+async function assignAgentToOrder(client, orderId, agentId) {
+  const result = await client.query(
+    `UPDATE orders
+     SET agent_id = $2,
+         status = 'assigned'
+     WHERE id = $1 AND deleted_at IS NULL
+     RETURNING id, user_id, store_id, status, total_amount,
+              delivery_fee, agent_id, placed_at`,
+    [orderId, agentId]
+  );
+  return result.rows[0] || null;
+}
+
 module.exports = {
   getOrderById,
   listUserOrders,
@@ -212,4 +295,7 @@ module.exports = {
   insertStatusHistory,
   getOrderRaw,
   softDeleteOrder,
+  findOrderByIdWithAgent,
+  findAgentOrders,
+  assignAgentToOrder,
 };

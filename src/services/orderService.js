@@ -11,7 +11,11 @@ const {
   insertStatusHistory,
   getOrderRaw,
   softDeleteOrder,
+  findOrderByIdWithAgent,
+  findAgentOrders,
+  assignAgentToOrder,
 } = require('../models/orderModel');
+const { getAgentById, updateAgentStatus } = require('../models/agentModel');
 const {
   releaseInventoryReservation,
   deductInventoryOnDelivery,
@@ -362,13 +366,13 @@ async function listOrdersForUser(userId, page = 1, pageSize = 20) {
 /**
  * Paginated list of all orders (admin only), with optional filters.
  */
-async function listAllOrdersAdmin({ status, storeId, page = 1, pageSize = 20 }) {
+async function listAllOrdersAdmin({ status, storeId, agentId, page = 1, pageSize = 20 }) {
   const limit = pageSize;
   const offset = (page - 1) * pageSize;
 
   const [items, total] = await Promise.all([
-    listAllOrders({ status, storeId, limit, offset }),
-    countAllOrders({ status, storeId }),
+    listAllOrders({ status, storeId, agentId, limit, offset }),
+    countAllOrders({ status, storeId, agentId }),
   ]);
 
   return {
@@ -385,7 +389,8 @@ async function listAllOrdersAdmin({ status, storeId, page = 1, pageSize = 20 }) 
 // ── Valid status transitions ────────────────────────────────────────
 const VALID_TRANSITIONS = {
   pending:          ['confirmed', 'cancelled'],
-  confirmed:        ['picking', 'cancelled'],
+  confirmed:        ['assigned', 'picking', 'cancelled'],
+  assigned:         ['picking'],
   picking:          ['out_for_delivery'],
   out_for_delivery: ['delivered'],
   delivered:        [],  // terminal
@@ -523,4 +528,188 @@ module.exports = {
   changeOrderStatus,
   calculateSurgeMultiplier,
   calculateEtaMinutes,
+  assignAgentToOrderService,
+  agentNextStatusService,
+  getAgentOrderDetails,
+  listAgentOrders,
 };
+
+// ── Agent-order integration services ────────────────────────────────
+
+/**
+ * Admin assigns an agent to a confirmed/pending order.
+ * Sets order status → 'assigned' and agent status → 'busy'.
+ */
+async function assignAgentToOrderService(orderId, agentId, actor) {
+  if (actor.role !== 'admin') {
+    throw new AuthError('Only admins can assign agents');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Validate order exists and is in an assignable state
+    const order = await getOrderRaw(client, orderId);
+    if (!order) throw new NotFoundError('Order not found');
+    if (!['pending', 'confirmed'].includes(order.status)) {
+      throw new ValidationError(
+        `Cannot assign agent: order is '${order.status}', must be 'pending' or 'confirmed'`
+      );
+    }
+    if (order.agent_id) {
+      throw new ValidationError('Order already has an agent assigned');
+    }
+
+    // 2. Validate agent exists and is available
+    const agent = await getAgentById(agentId);
+    if (!agent) throw new NotFoundError('Agent not found');
+    if (agent.status !== 'available') {
+      throw new ValidationError(`Agent is currently '${agent.status}', must be 'available'`);
+    }
+
+    // 3. Assign agent to order (atomic: sets status → 'assigned')
+    const updated = await assignAgentToOrder(client, orderId, agentId);
+
+    // 4. Mark agent as busy
+    await client.query(
+      `UPDATE agents SET status = 'busy', updated_at = NOW() WHERE id = $1`,
+      [agentId]
+    );
+
+    // 5. Record status history
+    await insertStatusHistory(client, {
+      orderId,
+      fromStatus: order.status,
+      toStatus: 'assigned',
+      changedBy: actor.id,
+    });
+
+    await client.query('COMMIT');
+
+    logger.info('Agent assigned to order', {
+      orderId, agentId, fromStatus: order.status, assignedBy: actor.id,
+    });
+
+    return updated;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Agent advances their own order through the linear flow:
+ *   assigned → picking → out_for_delivery → delivered
+ * On delivery: marks agent back to 'available'.
+ */
+const AGENT_STATUS_FLOW = {
+  assigned:         'picking',
+  picking:          'out_for_delivery',
+  out_for_delivery: 'delivered',
+};
+
+async function agentNextStatusService(orderId, actor) {
+  if (!actor.agentId) {
+    throw new AuthError('No agent profile linked to this user');
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const order = await getOrderRaw(client, orderId);
+    if (!order) throw new NotFoundError('Order not found');
+
+    // Ownership: agent can only advance their own orders
+    if (Number(order.agent_id) !== Number(actor.agentId)) {
+      throw new AuthError('You can only advance orders assigned to you');
+    }
+
+    const nextStatus = AGENT_STATUS_FLOW[order.status];
+    if (!nextStatus) {
+      throw new ValidationError(
+        `Cannot advance order from '${order.status}' — no next status in agent flow`
+      );
+    }
+
+    // Update order status
+    const updated = await updateOrderStatus(client, orderId, nextStatus);
+
+    // Record history
+    await insertStatusHistory(client, {
+      orderId,
+      fromStatus: order.status,
+      toStatus: nextStatus,
+      changedBy: actor.id,
+    });
+
+    // If delivered: handle inventory + mark agent available
+    if (nextStatus === 'delivered') {
+      const items = (order.items || []).filter(Boolean);
+      for (const item of items) {
+        const deducted = await deductInventoryOnDelivery(
+          client,
+          order.store_id,
+          Number(item.productId),
+          item.quantity
+        );
+        if (deducted && deducted.quantity <= deducted.low_stock_threshold) {
+          logger.warn('Low stock alert', {
+            storeId: order.store_id,
+            productId: deducted.product_id,
+            remainingQuantity: deducted.quantity,
+          });
+        }
+      }
+
+      // Mark agent as available again
+      await client.query(
+        `UPDATE agents SET status = 'available', updated_at = NOW() WHERE id = $1`,
+        [actor.agentId]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    logger.info('Agent advanced order status', {
+      orderId, fromStatus: order.status, toStatus: nextStatus, agentId: actor.agentId,
+    });
+
+    return updated;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Get order details with agent info.
+ * Agents see only their own; customers see their own; admins see any.
+ */
+async function getAgentOrderDetails(orderId, actor) {
+  const order = await findOrderByIdWithAgent(orderId);
+  if (!order) throw new NotFoundError('Order not found');
+
+  // RBAC
+  if (actor.role === 'customer' && Number(order.user_id) !== Number(actor.id)) {
+    throw new AuthError('You can only view your own orders');
+  }
+  if (actor.role === 'agent' && Number(order.agent_id) !== Number(actor.agentId)) {
+    throw new AuthError('You can only view orders assigned to you');
+  }
+
+  return order;
+}
+
+/**
+ * List orders for the logged-in agent.
+ */
+async function listAgentOrders(agentId, status) {
+  if (!agentId) throw new AuthError('No agent profile linked');
+  return findAgentOrders(agentId, status);
+}

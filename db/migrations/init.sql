@@ -70,15 +70,20 @@ CREATE TABLE orders (
     placed_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     delivered_at               TIMESTAMPTZ,
     deleted_at                 TIMESTAMPTZ,  -- soft delete
+    agent_id                   BIGINT,       -- assigned delivery agent
     CONSTRAINT chk_order_status CHECK (status IN (
         'pending',
         'confirmed',
+        'assigned',
         'picking',
         'out_for_delivery',
         'delivered',
         'cancelled'
     ))
 );
+
+-- FK: orders.agent_id → agents (added after agents table is created)
+-- ALTER TABLE orders ADD CONSTRAINT fk_orders_agent FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL;
 
 -- ORDER ITEMS
 CREATE TABLE order_items (

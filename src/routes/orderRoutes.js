@@ -9,6 +9,10 @@ const {
   listAllOrdersHandler,
   updateOrderStatusHandler,
   cancelOrderHandler,
+  assignAgentHandler,
+  agentNextStatusHandler,
+  agentOrderDetailsHandler,
+  agentMyOrdersHandler,
 } = require('../controllers/orderController');
 
 const router = express.Router();
@@ -46,6 +50,7 @@ const orderIdSchema = z.object({
 const updateStatusSchema = z.object({
   status: z.enum([
     'confirmed',
+    'assigned',
     'picking',
     'out_for_delivery',
     'delivered',
@@ -60,10 +65,11 @@ const listQuerySchema = z.object({
 
 const adminListQuerySchema = z.object({
   status: z.enum([
-    'pending', 'confirmed', 'picking',
+    'pending', 'confirmed', 'assigned', 'picking',
     'out_for_delivery', 'delivered', 'cancelled',
   ]).optional(),
   storeId: z.string().regex(/^\d+$/).optional(),
+  agentId: z.string().regex(/^\d+$/).optional(),
   page: z.string().optional(),
   pageSize: z.string().optional(),
 });
@@ -79,6 +85,21 @@ router.get(
 
 // Customer: list my orders
 router.get('/', requireAuth, validate(listQuerySchema, 'query'), listOrdersHandler);
+
+// Agent: list my assigned orders (must be before /:id)
+const agentOrdersQuerySchema = z.object({
+  status: z.enum([
+    'assigned', 'picking', 'out_for_delivery', 'delivered',
+  ]).optional(),
+});
+
+router.get(
+  '/agent/my-orders',
+  requireAuth,
+  requireRole('agent'),
+  validate(agentOrdersQuerySchema, 'query'),
+  agentMyOrdersHandler
+);
 
 // Get order by ID (customer sees own, admin sees any)
 router.get('/:id', requireAuth, validate(orderIdSchema, 'params'), getOrderHandler);
@@ -102,6 +123,39 @@ router.post(
   requireAuth,
   validate(orderIdSchema, 'params'),
   cancelOrderHandler
+);
+
+// ── Agent-order integration routes ──
+
+const assignAgentSchema = z.object({
+  agentId: z.number().int().positive(),
+});
+
+// Admin: assign agent to order
+router.patch(
+  '/:id/assign-agent',
+  requireAuth,
+  requireRole('admin'),
+  validate(orderIdSchema, 'params'),
+  validate(assignAgentSchema),
+  assignAgentHandler
+);
+
+// Agent: advance own order to next status
+router.patch(
+  '/:id/next-status',
+  requireAuth,
+  requireRole('agent'),
+  validate(orderIdSchema, 'params'),
+  agentNextStatusHandler
+);
+
+// Admin/Agent/Customer: get order with agent details
+router.get(
+  '/:id/agent-details',
+  requireAuth,
+  validate(orderIdSchema, 'params'),
+  agentOrderDetailsHandler
 );
 
 module.exports = { orderRouter: router };

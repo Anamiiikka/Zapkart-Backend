@@ -1,4 +1,14 @@
-const { placeOrder, getOrder, listOrdersForUser, listAllOrdersAdmin, changeOrderStatus } = require('../services/orderService');
+const {
+  placeOrder,
+  getOrder,
+  listOrdersForUser,
+  listAllOrdersAdmin,
+  changeOrderStatus,
+  assignAgentToOrderService,
+  agentNextStatusService,
+  getAgentOrderDetails,
+  listAgentOrders,
+} = require('../services/orderService');
 const { findUserById } = require('../models/userModel');
 const { pool } = require('../config/db');
 const { NotFoundError, ValidationError } = require('../utils/errors');
@@ -98,7 +108,54 @@ module.exports = {
   listAllOrdersHandler,
   updateOrderStatusHandler,
   cancelOrderHandler,
+  assignAgentHandler,
+  agentNextStatusHandler,
+  agentOrderDetailsHandler,
+  agentMyOrdersHandler,
 };
+
+// ── Agent-order handlers ────────────────────────────────────────────
+
+async function assignAgentHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const { agentId } = req.body;
+    const result = await assignAgentToOrderService(orderId, agentId, req.user);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function agentNextStatusHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const result = await agentNextStatusService(orderId, req.user);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function agentOrderDetailsHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const result = await getAgentOrderDetails(orderId, req.user);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function agentMyOrdersHandler(req, res, next) {
+  try {
+    const status = req.query.status || undefined;
+    const orders = await listAgentOrders(req.user.agentId, status);
+    res.json({ success: true, data: orders });
+  } catch (err) {
+    next(err);
+  }
+}
 
 async function getOrderHandler(req, res, next) {
   try {
@@ -124,11 +181,12 @@ async function listOrdersHandler(req, res, next) {
 
 async function listAllOrdersHandler(req, res, next) {
   try {
-    const { status, storeId, page = '1', pageSize = '20' } = req.query;
+    const { status, storeId, agentId, page = '1', pageSize = '20' } = req.query;
 
     const result = await listAllOrdersAdmin({
       status: status || undefined,
       storeId: storeId ? Number(storeId) : undefined,
+      agentId: agentId ? Number(agentId) : undefined,
       page: Number(page),
       pageSize: Number(pageSize),
     });
