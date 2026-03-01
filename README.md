@@ -6,6 +6,19 @@
 
 ---
 
+## 🎯 Project Overview
+
+A **production-ready** backend API for a dark-store quick-commerce platform that:
+
+- 🔍 **Matches customers to the best dark store** using PostGIS spatial queries with composite scoring (70% distance + 30% load)
+- 📦 **Manages inventory** with optimistic locking — zero oversells, even under concurrent orders
+- 🚴 **Auto-assigns delivery agents** via PostGIS proximity + workload balancing
+- 💰 **Calculates dynamic surge pricing** based on real-time store order volume
+- 🔐 **Secures all endpoints** with JWT authentication, role-based access control, and refresh token rotation
+- 📈 **Scales horizontally** with Redis caching layer and connection pooling
+
+---
+
 ## 📊 Performance Highlights
 
 ### Benchmark Results (autocannon · 10s · 10 connections)
@@ -33,19 +46,6 @@
 | **Connection Pool** | 20 max connections | ✅ Tuned |
 | **Auth** | JWT + refresh token rotation | ✅ Secure |
 | **Concurrency** | Row-level + optimistic locking | ✅ ACID-safe |
-
----
-
-## 🎯 Project Overview
-
-A **production-ready** backend API for a dark-store quick-commerce platform that:
-
-- 🔍 **Matches customers to the best dark store** using PostGIS spatial queries with composite scoring (70% distance + 30% load)
-- 📦 **Manages inventory** with optimistic locking — zero oversells, even under concurrent orders
-- 🚴 **Auto-assigns delivery agents** via PostGIS proximity + workload balancing
-- 💰 **Calculates dynamic surge pricing** based on real-time store order volume
-- 🔐 **Secures all endpoints** with JWT authentication, role-based access control, and refresh token rotation
-- 📈 **Scales horizontally** with Redis caching layer and connection pooling
 
 ---
 
