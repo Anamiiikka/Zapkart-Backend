@@ -158,6 +158,25 @@ async function getAvailableAgentsForStoreService(storeId, limit = 10) {
   return getAvailableAgentsForStore(storeId, limit);
 }
 
+// ── Toggle availability (agent dashboard) ──
+
+async function toggleAgentAvailabilityService(actor) {
+  if (!actor.agentId) {
+    throw new NotFoundError('No agent profile linked to this user');
+  }
+
+  const agent = await getAgentById(actor.agentId);
+  if (!agent) {
+    throw new NotFoundError('Agent not found');
+  }
+
+  // Toggle between 'available' and 'busy'
+  const newStatus = agent.status === 'available' ? 'busy' : 'available';
+
+  const updated = await updateAgentStatus(actor.agentId, newStatus);
+  return updated;
+}
+
 module.exports = {
   createAgentService,
   createAgentWithUserService,
@@ -166,5 +185,6 @@ module.exports = {
   getMyAgentProfileService,
   updateAgentStatusService,
   updateAgentLocationService,
-  getAvailableAgentsForStoreService
+  getAvailableAgentsForStoreService,
+  toggleAgentAvailabilityService
 };

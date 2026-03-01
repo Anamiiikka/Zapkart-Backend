@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { env } = require('../config/env');
 const { AuthError, ForbiddenError } = require('../utils/errors');
+const { pool } = require('../config/db');
 
 /**
  * Middleware to require authentication.
@@ -112,10 +113,47 @@ function requireOwnerOrAdmin(getResourceOwnerId) {
   };
 }
 
+/**
+ * DB-verified agent guard.
+ * Must be used after requireAuth.
+ * - Confirms the user's row exists and has role 'agent' (or 'delivery')
+ *   AND is linked to an agents record.
+ * - Attaches req.agent = { id, user_id, role } for downstream handlers.
+ */
+async function requireAgent(req, res, next) {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return next(new AuthError('No user ID in token'));
+    }
+
+    const result = await pool.query(
+      `SELECT u.role, a.id AS agent_id
+       FROM users u
+       LEFT JOIN agents a ON u.id = a.user_id
+       WHERE u.id = $1`,
+      [userId]
+    );
+
+    const row = result.rows[0];
+
+    if (!row || (row.role !== 'agent' && row.role !== 'delivery') || !row.agent_id) {
+      return next(new ForbiddenError('Agent access required'));
+    }
+
+    // Attach for use in controllers (supplements req.user.agentId from JWT)
+    req.agent = { id: row.agent_id, user_id: userId, role: row.role };
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
 module.exports = {
   requireAuth,
   authenticate: requireAuth, // Alias for common naming convention
   optionalAuth,
   requireRole,
   requireOwnerOrAdmin,
+  requireAgent,
 };

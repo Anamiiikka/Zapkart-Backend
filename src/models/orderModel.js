@@ -242,14 +242,15 @@ async function findOrderByIdWithAgent(orderId) {
 
 /**
  * List orders assigned to a specific agent, optionally filtered by status.
+ * Joins users and dark_stores for enriched display data.
  */
 async function findAgentOrders(agentId, status, limit = 50, offset = 0) {
-  const conditions = ['agent_id = $1', 'deleted_at IS NULL'];
+  const conditions = ['o.agent_id = $1', 'o.deleted_at IS NULL'];
   const params = [agentId];
   let idx = 2;
 
   if (status) {
-    conditions.push(`status = $${idx}`);
+    conditions.push(`o.status = $${idx}`);
     params.push(status);
     idx++;
   }
@@ -257,12 +258,17 @@ async function findAgentOrders(agentId, status, limit = 50, offset = 0) {
   params.push(limit, offset);
 
   const result = await pool.query(
-    `SELECT id, user_id, store_id, status, total_amount,
-            delivery_fee, delivery_address, estimated_delivery_minutes,
-            placed_at, delivered_at, agent_id
-     FROM orders
+    `SELECT
+       o.id, o.user_id, o.store_id, o.status, o.total_amount,
+       o.delivery_fee, o.delivery_address, o.estimated_delivery_minutes,
+       o.placed_at, o.delivered_at, o.agent_id,
+       u.name  AS customer_name,
+       ds.name AS store_name
+     FROM orders o
+     JOIN users       u  ON u.id  = o.user_id
+     JOIN dark_stores ds ON ds.id = o.store_id
      WHERE ${conditions.join(' AND ')}
-     ORDER BY placed_at DESC
+     ORDER BY o.placed_at DESC
      LIMIT $${idx} OFFSET $${idx + 1}`,
     params
   );

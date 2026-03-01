@@ -5,8 +5,14 @@ const {
   getAgentService,
   getMyAgentProfileService,
   updateAgentStatusService,
-  updateAgentLocationService
+  updateAgentLocationService,
+  toggleAgentAvailabilityService
 } = require('../services/agentService');
+const {
+  listAgentOrders,
+  getAgentOrderDetails,
+  agentNextStatusService,
+} = require('../services/orderService');
 
 // ── Admin: create agent (standalone, optional userId link) ──
 
@@ -98,6 +104,56 @@ async function updateAgentLocationHandler(req, res, next) {
   }
 }
 
+// ── Agent Dashboard: list my orders ──
+
+async function getAgentOrdersHandler(req, res, next) {
+  try {
+    // req.agent.id is set by requireAgent middleware (DB-verified)
+    // Fall back to JWT agentId if middleware not in chain
+    const agentId = req.agent?.id ?? req.user.agentId;
+    const status = req.query.status || undefined;
+    const orders = await listAgentOrders(agentId, status);
+    res.json({ success: true, data: orders, count: orders.length });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Agent Dashboard: single order detail ──
+
+async function getAgentOrderHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const result = await getAgentOrderDetails(orderId, req.user);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Agent Dashboard: advance order to next status ──
+
+async function updateAgentOrderStatusHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const result = await agentNextStatusService(orderId, req.user);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ── Agent Dashboard: toggle availability ──
+
+async function toggleAvailabilityHandler(req, res, next) {
+  try {
+    const updated = await toggleAgentAvailabilityService(req.user);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   createAgentHandler,
   createAgentWithUserHandler,
@@ -105,5 +161,9 @@ module.exports = {
   getAgentHandler,
   getMyAgentProfileHandler,
   updateAgentStatusHandler,
-  updateAgentLocationHandler
+  updateAgentLocationHandler,
+  getAgentOrdersHandler,
+  getAgentOrderHandler,
+  updateAgentOrderStatusHandler,
+  toggleAvailabilityHandler,
 };

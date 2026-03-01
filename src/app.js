@@ -41,6 +41,16 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 // Request logging
 app.use(requestLogger);
 
+// Sanitize URL: strip trailing spaces (sent as %20) and redundant slashes
+// so clients that accidentally include whitespace still resolve correctly.
+app.use((req, _res, next) => {
+  const trimmed = req.url.replace(/%20+$/, '').replace(/\s+$/, '').replace(/\/+$/, '') || '/';
+  if (trimmed !== req.url) {
+    req.url = trimmed;
+  }
+  next();
+});
+
 // Routes
 app.use('/', healthRoutes);
 app.use('/api/v1/auth', authRouter);

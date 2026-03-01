@@ -1,7 +1,7 @@
 const express = require('express');
 const { z } = require('zod');
 const { validate } = require('../middleware/validate');
-const { requireAuth, requireRole } = require('../middleware/auth');
+const { requireAuth, requireRole, requireAgent } = require('../middleware/auth');
 const {
   createAgentHandler,
   createAgentWithUserHandler,
@@ -9,7 +9,11 @@ const {
   getAgentHandler,
   getMyAgentProfileHandler,
   updateAgentStatusHandler,
-  updateAgentLocationHandler
+  updateAgentLocationHandler,
+  getAgentOrdersHandler,
+  getAgentOrderHandler,
+  updateAgentOrderStatusHandler,
+  toggleAvailabilityHandler
 } = require('../controllers/agentController');
 
 const router = express.Router();
@@ -85,8 +89,58 @@ router.get(
   '/me',
   requireAuth,
   requireRole('agent'),
+  requireAgent,
   getMyAgentProfileHandler
 );
+
+// ── Agent Dashboard Routes (agent-only) ──
+// IMPORTANT: all /orders* and /availability routes must be defined BEFORE /:id
+// to prevent Express matching them as the admin /:id route.
+
+const agentOrdersQuerySchema = z.object({
+  status: z.enum(['assigned', 'picking', 'out_for_delivery', 'delivered']).optional(),
+});
+
+// Agent: list my assigned orders
+router.get(
+  '/orders',
+  requireAuth,
+  requireRole('agent'),
+  requireAgent,
+  validate(agentOrdersQuerySchema, 'query'),
+  getAgentOrdersHandler
+);
+
+// Agent: get single order detail + navigation data
+router.get(
+  '/orders/:id',
+  requireAuth,
+  requireRole('agent'),
+  requireAgent,
+  validate(idParamsSchema, 'params'),
+  getAgentOrderHandler
+);
+
+// Agent: advance order to next status (picking → out_for_delivery → delivered)
+router.patch(
+  '/orders/:id/next-status',
+  requireAuth,
+  requireRole('agent'),
+  requireAgent,
+  validate(idParamsSchema, 'params'),
+  updateAgentOrderStatusHandler
+);
+
+// Agent: toggle availability (available ↔ busy)
+router.post(
+  '/availability',
+  requireAuth,
+  requireRole('agent'),
+  requireAgent,
+  toggleAvailabilityHandler
+);
+
+// ── Admin routes with /:id param (must come AFTER all named routes) ──
 
 // Admin: get single agent
 router.get(
