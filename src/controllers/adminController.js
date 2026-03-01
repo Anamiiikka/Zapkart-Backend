@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { restockProductService } = require('../services/inventoryService');
 const { ValidationError } = require('../utils/errors');
 
 // ── 1. GET /admin/orders ─────────────────────────────────────────────
@@ -243,9 +244,27 @@ async function getAnalyticsHandler(req, res, next) {
   }
 }
 
+// ── 5. POST /admin/inventory/restock ───────────────────────────────────────
+// Convenience wrapper so admins don’t need to know the storeId path.
+
+async function restockHandler(req, res, next) {
+  try {
+    const { storeId, productId, quantity } = req.body;
+    const updated = await restockProductService({
+      storeId:   Number(storeId),
+      productId: Number(productId),
+      quantity:  Number(quantity),
+    });
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getOrdersHandler,
   getAgentsHandler,
   getLowInventoryHandler,
   getAnalyticsHandler,
+  restockHandler,
 };

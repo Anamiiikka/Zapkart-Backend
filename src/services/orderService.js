@@ -533,7 +533,89 @@ module.exports = {
   agentNextStatusService,
   getAgentOrderDetails,
   listAgentOrders,
+  getOrderTrack,
 };
+
+// ── Real-time order tracking ─────────────────────────────────────────
+
+/**
+ * Returns a tracking snapshot for a given order:
+ *   - current status + full status history
+ *   - store name + address
+ *   - agent name, phone, current location (if assigned)
+ *   - ETA and delivery timestamps
+ * RBAC: customers see own orders only; agents see their orders; admins see all.
+ */
+async function getOrderTrack(orderId, actor) {
+  const result = await pool.query(
+    `SELECT
+       o.id, o.status, o.delivery_address,
+       o.estimated_delivery_minutes, o.placed_at, o.delivered_at,
+       o.total_amount, o.delivery_fee,
+       o.user_id, o.agent_id,
+       ds.name                  AS store_name,
+       ds.address               AS store_address,
+       a.name                   AS agent_name,
+       a.phone                  AS agent_phone,
+       a.current_latitude       AS agent_latitude,
+       a.current_longitude      AS agent_longitude,
+       (
+         SELECT json_agg(
+           json_build_object(
+             'from',      sh.from_status,
+             'to',        sh.to_status,
+             'changedAt', sh.created_at
+           ) ORDER BY sh.created_at
+         )
+         FROM order_status_history sh
+         WHERE sh.order_id = o.id
+       ) AS status_history
+     FROM orders o
+     JOIN dark_stores ds ON ds.id = o.store_id
+     LEFT JOIN agents  a  ON a.id  = o.agent_id
+     WHERE o.id = $1 AND o.deleted_at IS NULL`,
+    [orderId]
+  );
+
+  const order = result.rows[0];
+  if (!order) throw new NotFoundError('Order not found');
+
+  // RBAC
+  if (actor.role === 'customer' && Number(order.user_id) !== Number(actor.id)) {
+    throw new AuthError('You can only track your own orders');
+  }
+  if (actor.role === 'agent' && Number(order.agent_id) !== Number(actor.agentId)) {
+    throw new AuthError('You can only track orders assigned to you');
+  }
+
+  // Estimate remaining time for in-progress orders
+  let etaRemainingMinutes = null;
+  if (!['delivered', 'cancelled'].includes(order.status)) {
+    const elapsed = (Date.now() - new Date(order.placed_at).getTime()) / 60_000;
+    etaRemainingMinutes = Math.max(0, Math.round(order.estimated_delivery_minutes - elapsed));
+  }
+
+  return {
+    orderId:    order.id,
+    status:     order.status,
+    placedAt:   order.placed_at,
+    deliveredAt: order.delivered_at,
+    estimatedDeliveryMinutes: order.estimated_delivery_minutes,
+    etaRemainingMinutes,
+    deliveryAddress: order.delivery_address,
+    store: {
+      name:    order.store_name,
+      address: order.store_address,
+    },
+    agent: order.agent_id ? {
+      name:      order.agent_name,
+      phone:     order.agent_phone,
+      latitude:  order.agent_latitude,
+      longitude: order.agent_longitude,
+    } : null,
+    statusHistory: order.status_history || [],
+  };
+}
 
 // ── Agent-order integration services ────────────────────────────────
 

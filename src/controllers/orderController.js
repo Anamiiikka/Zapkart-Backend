@@ -9,6 +9,7 @@ const {
   agentNextStatusService,
   getAgentOrderDetails,
   listAgentOrders,
+  getOrderTrack,
 } = require('../services/orderService');
 const { findUserById } = require('../models/userModel');
 const { pool } = require('../config/db');
@@ -114,7 +115,18 @@ module.exports = {
   agentNextStatusHandler,
   agentOrderDetailsHandler,
   agentMyOrdersHandler,
+  getOrderTrackHandler,
 };
+
+async function getOrderTrackHandler(req, res, next) {
+  try {
+    const orderId = Number(req.params.id);
+    const result  = await getOrderTrack(orderId, req.user);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+}
 
 // ── Agent-order handlers ────────────────────────────────────────────
 

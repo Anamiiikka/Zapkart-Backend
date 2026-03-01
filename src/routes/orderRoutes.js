@@ -14,6 +14,7 @@ const {
   agentNextStatusHandler,
   agentOrderDetailsHandler,
   agentMyOrdersHandler,
+  getOrderTrackHandler,
 } = require('../controllers/orderController');
 
 const router = express.Router();
@@ -166,6 +167,14 @@ router.get(
   requireAuth,
   validate(orderIdSchema, 'params'),
   agentOrderDetailsHandler
+);
+
+// Any authenticated user: real-time tracking snapshot
+router.get(
+  '/:id/track',
+  requireAuth,
+  validate(orderIdSchema, 'params'),
+  getOrderTrackHandler
 );
 
 module.exports = { orderRouter: router };

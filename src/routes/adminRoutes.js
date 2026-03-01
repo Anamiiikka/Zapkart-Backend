@@ -7,6 +7,7 @@ const {
   getAgentsHandler,
   getLowInventoryHandler,
   getAnalyticsHandler,
+  restockHandler,
 } = require('../controllers/adminController');
 
 const router = express.Router();
@@ -37,6 +38,12 @@ const analyticsQuerySchema = z.object({
   to:    z.string().datetime({ offset: true }).optional(),
 });
 
+const restockBodySchema = z.object({
+  storeId:   z.number().int().positive(),
+  productId: z.number().int().positive(),
+  quantity:  z.number().int().positive(),
+});
+
 // ── Routes ──
 
 // GET /api/v1/admin/orders
@@ -47,6 +54,9 @@ router.get('/agents',         getAgentsHandler);
 
 // GET /api/v1/admin/inventory/low
 router.get('/inventory/low',  validate(storeQuerySchema,     'query'), getLowInventoryHandler);
+
+// POST /api/v1/admin/inventory/restock
+router.post('/inventory/restock', validate(restockBodySchema), restockHandler);
 
 // GET /api/v1/admin/analytics
 router.get('/analytics',      validate(analyticsQuerySchema, 'query'), getAnalyticsHandler);
