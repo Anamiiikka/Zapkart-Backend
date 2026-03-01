@@ -32,6 +32,9 @@ const storeQuerySchema = z.object({
 
 const analyticsQuerySchema = z.object({
   since: z.string().datetime({ offset: true }).optional(),
+  until: z.string().datetime({ offset: true }).optional(),
+  from:  z.string().datetime({ offset: true }).optional(),
+  to:    z.string().datetime({ offset: true }).optional(),
 });
 
 // ── Routes ──

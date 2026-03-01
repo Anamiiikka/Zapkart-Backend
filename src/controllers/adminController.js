@@ -80,15 +80,24 @@ async function getAgentsHandler(req, res, next) {
          a.store_id,
          ds.name                                                     AS store_name,
          COUNT(o.id)::int                                            AS total_orders,
-         COUNT(CASE WHEN o.status = 'delivered'        THEN 1 END)::int AS delivered_orders,
-         COUNT(CASE WHEN o.status IN ('assigned','picking','out_for_delivery') THEN 1 END)::int
+         COUNT(o.id) FILTER (WHERE o.status = 'delivered')::int      AS delivered_orders,
+         COUNT(o.id) FILTER (WHERE o.status IN ('assigned','picking','out_for_delivery'))::int
                                                                      AS active_orders,
          ROUND(
            CASE WHEN COUNT(o.id) > 0
-                THEN COUNT(CASE WHEN o.status = 'delivered' THEN 1 END)::numeric
+                THEN COUNT(o.id) FILTER (WHERE o.status = 'delivered')::numeric
                      / COUNT(o.id) * 100
                 ELSE 0 END, 1
-         )                                                           AS delivery_rate_pct
+         )                                                           AS delivery_rate_pct,
+         ROUND(
+           AVG(
+             EXTRACT(EPOCH FROM (o.delivered_at - o.placed_at)) / 60
+           ) FILTER (WHERE o.status = 'delivered' AND o.delivered_at IS NOT NULL),
+           1
+         )                                                           AS avg_delivery_minutes,
+         COALESCE(
+           SUM(o.total_amount) FILTER (WHERE o.status = 'delivered'), 0
+         )::numeric(12,2)                                            AS total_revenue
        FROM agents a
        JOIN dark_stores ds ON ds.id = a.store_id
        LEFT JOIN orders  o  ON o.agent_id = a.id AND o.deleted_at IS NULL
@@ -121,6 +130,7 @@ async function getLowInventoryHandler(req, res, next) {
       `SELECT
          i.id, i.store_id, i.product_id,
          i.quantity, i.reserved_quantity, i.low_stock_threshold,
+         (i.quantity - i.reserved_quantity) AS available_stock,
          i.updated_at,
          p.name     AS product_name,
          p.category AS product_category,
@@ -130,11 +140,11 @@ async function getLowInventoryHandler(req, res, next) {
        JOIN products    p  ON p.id  = i.product_id
        JOIN dark_stores ds ON ds.id = i.store_id
        WHERE ${conditions.join(' AND ')}
-       ORDER BY i.quantity ASC`,
+       ORDER BY available_stock ASC`,
       params
     );
 
-    res.json({ success: true, data: result.rows, count: result.rows.length });
+    res.json({ success: true, data: result.rows, critical_count: result.rows.length });
   } catch (err) {
     next(err);
   }
@@ -145,50 +155,58 @@ async function getLowInventoryHandler(req, res, next) {
 
 async function getAnalyticsHandler(req, res, next) {
   try {
-    const { since } = req.query;   // optional ISO date, default last 7 days
-    const fromDate  = since || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    // Support both `since`/`until` and `from`/`to` param names
+    const { since, until, from, to } = req.query;
+    const fromDate = from  || since || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const toDate   = to    || until || new Date().toISOString();
 
     const [summary, byStatus, hourly, topStores] = await Promise.all([
       // Overall numbers
       pool.query(
         `SELECT
            COUNT(*)::int                                                   AS total_orders,
-           COUNT(CASE WHEN status = 'delivered' THEN 1 END)::int           AS delivered,
+           COUNT(CASE WHEN status = 'delivered' THEN 1 END)::int           AS delivered_orders,
            COUNT(CASE WHEN status = 'cancelled' THEN 1 END)::int           AS cancelled,
            COUNT(CASE WHEN status IN ('pending','confirmed','assigned',
                                      'picking','out_for_delivery') THEN 1 END)::int AS in_progress,
            COALESCE(SUM(CASE WHEN status = 'delivered'
                              THEN total_amount END), 0)::numeric(12,2)     AS total_revenue,
+           COALESCE(SUM(CASE WHEN status = 'delivered'
+                             THEN delivery_fee END), 0)::numeric(12,2)     AS total_delivery_fees,
            COALESCE(AVG(CASE WHEN status = 'delivered'
                              THEN total_amount END), 0)::numeric(10,2)     AS avg_order_value,
            COALESCE(AVG(CASE WHEN delivered_at IS NOT NULL
                              THEN EXTRACT(EPOCH FROM (delivered_at - placed_at))/60
-                             END), 0)::numeric(8,1)                        AS avg_delivery_minutes
+                             END), 0)::numeric(8,1)                        AS avg_delivery_minutes,
+           AVG(estimated_delivery_minutes)::numeric(8,1)                   AS avg_eta,
+           COUNT(DISTINCT agent_id)::int                                   AS active_agents
          FROM orders
-         WHERE placed_at >= $1 AND deleted_at IS NULL`,
-        [fromDate]
+         WHERE placed_at BETWEEN $1 AND $2 AND deleted_at IS NULL`,
+        [fromDate, toDate]
       ),
 
       // Breakdown by status
       pool.query(
         `SELECT status, COUNT(*)::int AS count
          FROM orders
-         WHERE placed_at >= $1 AND deleted_at IS NULL
+         WHERE placed_at BETWEEN $1 AND $2 AND deleted_at IS NULL
          GROUP BY status
          ORDER BY count DESC`,
-        [fromDate]
+        [fromDate, toDate]
       ),
 
-      // Orders per hour (last 24 h)
+      // Orders + revenue per hour (last 24 h)
       pool.query(
         `SELECT
-           DATE_TRUNC('hour', placed_at) AS hour,
-           COUNT(*)::int                 AS orders
+           DATE_TRUNC('hour', placed_at)                AS hour,
+           COUNT(*)::int                                AS orders,
+           COALESCE(SUM(total_amount),0)::numeric(12,2) AS revenue
          FROM orders
          WHERE placed_at >= NOW() - INTERVAL '24 hours'
            AND deleted_at IS NULL
          GROUP BY hour
-         ORDER BY hour`
+         ORDER BY hour DESC
+         LIMIT 24`
       ),
 
       // Top stores by revenue
@@ -200,23 +218,24 @@ async function getAnalyticsHandler(req, res, next) {
          FROM dark_stores ds
          LEFT JOIN orders o ON o.store_id = ds.id
            AND o.status = 'delivered'
-           AND o.placed_at >= $1
+           AND o.placed_at BETWEEN $1 AND $2
            AND o.deleted_at IS NULL
          GROUP BY ds.id
          ORDER BY revenue DESC
          LIMIT 10`,
-        [fromDate]
+        [fromDate, toDate]
       ),
     ]);
 
     res.json({
       success: true,
       data: {
-        period:     { since: fromDate, until: new Date().toISOString() },
-        summary:    summary.rows[0],
-        byStatus:   byStatus.rows,
+        period:        { since: fromDate, until: toDate },
+        summary:       summary.rows[0],
+        byStatus:      byStatus.rows,
         ordersPerHour: hourly.rows,
-        topStores:  topStores.rows,
+        topStores:     topStores.rows,
+        timestamp:     new Date().toISOString(),
       },
     });
   } catch (err) {
