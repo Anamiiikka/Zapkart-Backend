@@ -827,21 +827,18 @@ async function autoAssignOrder(orderId, actor) {
       throw new ValidationError('Order already has an agent assigned');
     }
 
-    // 2. Find best agent via PostGIS
+    // 2. Find best agent via PostGIS KNN
     //    - Must belong to the same store
     //    - Must be 'available'
-    //    - Must have lat/lng set
+    //    - Must have location set (synced by trigger from lat/lng)
     //    - Within search radius of the store
-    //    - Sorted by fewest active orders, then closest to store
+    //    - Sorted by fewest active orders, then closest to store (KNN)
     const bestAgentResult = await client.query(
       `SELECT
          a.id            AS agent_id,
          a.name          AS agent_name,
          a.phone         AS agent_phone,
-         ST_Distance(
-           ST_SetSRID(ST_MakePoint(a.current_longitude, a.current_latitude), 4326)::geography,
-           ds.location
-         ) / 1000        AS distance_km,
+         ST_Distance(a.location, ds.location) / 1000 AS distance_km,
          COALESCE(oc.pending_count, 0) AS pending_orders
        FROM agents a
        JOIN dark_stores ds ON ds.id = a.store_id
@@ -854,15 +851,10 @@ async function autoAssignOrder(orderId, actor) {
        ) oc ON oc.agent_id = a.id
        WHERE a.store_id = $1
          AND a.status = 'available'
-         AND a.current_latitude  IS NOT NULL
-         AND a.current_longitude IS NOT NULL
-         AND ST_DWithin(
-           ST_SetSRID(ST_MakePoint(a.current_longitude, a.current_latitude), 4326)::geography,
-           ds.location,
-           $2
-         )
+         AND a.location IS NOT NULL
+         AND ST_DWithin(a.location, ds.location, $2)
        ORDER BY pending_orders ASC,
-                distance_km   ASC
+                a.location <-> ds.location ASC
        LIMIT 1`,
       [order.store_id, AUTO_ASSIGN_RADIUS_METERS]
     );
