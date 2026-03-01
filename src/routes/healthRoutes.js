@@ -6,6 +6,16 @@ const { version } = require('../../package.json');
 
 const router = express.Router();
 
+// Root route
+router.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: 'Zapkart backend is running',
+    version,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Basic liveness check
 router.get('/health', (req, res) => {
   res.status(200).json({

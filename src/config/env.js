@@ -13,7 +13,7 @@ const envSchema = z.object({
   DB_PASSWORD: z.string().default(''),
 
   // Redis
-  REDIS_ENABLED: z.coerce.boolean().default(false),
+  REDIS_ENABLED: z.string().default('false').transform((val) => val === 'true'),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
   REDIS_PASSWORD: z.string().optional(),
