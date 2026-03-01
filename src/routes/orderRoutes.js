@@ -2,6 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const { validate } = require('../middleware/validate');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { orderLimiter } = require('../middleware/rateLimit');
 const {
   placeOrderHandler,
   getOrderHandler,
@@ -106,8 +107,8 @@ router.get(
 // Get order by ID (customer sees own, admin sees any)
 router.get('/:id', requireAuth, validate(orderIdSchema, 'params'), getOrderHandler);
 
-// Place a new order (authenticated customers)
-router.post('/', requireAuth, validate(placeOrderSchema), placeOrderHandler);
+// Place a new order (authenticated customers) — stricter rate limit
+router.post('/', requireAuth, orderLimiter, validate(placeOrderSchema), placeOrderHandler);
 
 // Admin/agent: update order status
 router.patch(

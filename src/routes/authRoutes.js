@@ -2,6 +2,7 @@ const express = require('express');
 const { z } = require('zod');
 const { validate } = require('../middleware/validate');
 const { authenticate } = require('../middleware/auth');
+const { authLimiter } = require('../middleware/rateLimit');
 const {
   registerHandler,
   loginHandler,
@@ -38,9 +39,9 @@ const logoutSchema = z.object({
   refreshToken: z.string().min(10, 'Invalid refresh token')
 });
 
-// Public routes (no authentication required)
-router.post('/register', validate(registerSchema), registerHandler);
-router.post('/login', validate(loginSchema), loginHandler);
+// Public routes (no authentication required) — auth rate limiter
+router.post('/register', authLimiter, validate(registerSchema), registerHandler);
+router.post('/login', authLimiter, validate(loginSchema), loginHandler);
 router.post('/refresh', validate(refreshSchema), refreshHandler);
 router.post('/logout', validate(logoutSchema), logoutHandler);
 

@@ -1,6 +1,8 @@
 const express = require('express');
 const db = require('../config/db');
 const { redis, healthCheck: redisHealthCheck } = require('../config/redis');
+const { env } = require('../config/env');
+const { version } = require('../../package.json');
 
 const router = express.Router();
 
@@ -9,6 +11,9 @@ router.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
     timestamp: new Date().toISOString(),
+    uptime: Math.round(process.uptime()),
+    version,
+    environment: env.NODE_ENV,
   });
 });
 
