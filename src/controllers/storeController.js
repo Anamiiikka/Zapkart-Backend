@@ -17,8 +17,10 @@ async function createStoreHandler(req, res, next) {
 async function getStoreHandler(req, res, next) {
   try {
     const id = Number(req.params.id);
-    const store = await getStore(id);
-    res.json({ success: true, data: store });
+    const result = await getStore(id);
+    res.set('X-Cache', result._cached ? 'HIT' : 'MISS');
+    delete result._cached;
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
@@ -26,8 +28,9 @@ async function getStoreHandler(req, res, next) {
 
 async function listStoresHandler(req, res, next) {
   try {
-    const stores = await listStoresService();
-    res.json({ success: true, data: stores });
+    const result = await listStoresService();
+    res.set('X-Cache', result._cached ? 'HIT' : 'MISS');
+    res.json({ success: true, data: result.data });
   } catch (err) {
     next(err);
   }
@@ -39,8 +42,10 @@ async function nearestStoreHandler(req, res, next) {
     const latitude = Number(lat);
     const longitude = Number(lng);
 
-    const store = await findNearestStore({ latitude, longitude });
-    res.json({ success: true, data: store });
+    const result = await findNearestStore({ latitude, longitude });
+    res.set('X-Cache', result._cached ? 'HIT' : 'MISS');
+    delete result._cached;
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }

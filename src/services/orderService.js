@@ -26,6 +26,7 @@ const {
   ValidationError,
   AuthError,
 } = require('../utils/errors');
+const { cache, CACHE_TTL } = require('../utils/cache');
 
 // ── Constants ───────────────────────────────────────────────────────
 const BASE_DELIVERY_FEE = 25; // INR
@@ -495,6 +496,9 @@ async function changeOrderStatus({ orderId, newStatus, actor }) {
 
     await client.query('COMMIT');
 
+    // Bust order tracking cache
+    await cache.del(`order:track:${orderId}`);
+
     logger.info('Order status changed', {
       requestId,
       orderId,
@@ -547,40 +551,54 @@ module.exports = {
  * RBAC: customers see own orders only; agents see their orders; admins see all.
  */
 async function getOrderTrack(orderId, actor) {
-  const result = await pool.query(
-    `SELECT
-       o.id, o.status, o.delivery_address,
-       o.estimated_delivery_minutes, o.placed_at, o.delivered_at,
-       o.total_amount, o.delivery_fee,
-       o.user_id, o.agent_id,
-       ds.name                  AS store_name,
-       ds.address               AS store_address,
-       a.name                   AS agent_name,
-       a.phone                  AS agent_phone,
-       a.current_latitude       AS agent_latitude,
-       a.current_longitude      AS agent_longitude,
-       (
-         SELECT json_agg(
-           json_build_object(
-             'from',      sh.from_status,
-             'to',        sh.to_status,
-             'changedAt', sh.created_at
-           ) ORDER BY sh.created_at
-         )
-         FROM order_status_history sh
-         WHERE sh.order_id = o.id
-       ) AS status_history
-     FROM orders o
-     JOIN dark_stores ds ON ds.id = o.store_id
-     LEFT JOIN agents  a  ON a.id  = o.agent_id
-     WHERE o.id = $1 AND o.deleted_at IS NULL`,
-    [orderId]
-  );
+  // Try cache first (keyed by order, RBAC applied after)
+  const cacheKey = `order:track:${orderId}`;
+  let order;
+  let _cached = false;
 
-  const order = result.rows[0];
-  if (!order) throw new NotFoundError('Order not found');
+  const cachedOrder = await cache.getJSON(cacheKey);
+  if (cachedOrder) {
+    order   = cachedOrder;
+    _cached = true;
+  } else {
+    const result = await pool.query(
+      `SELECT
+         o.id, o.status, o.delivery_address,
+         o.estimated_delivery_minutes, o.placed_at, o.delivered_at,
+         o.total_amount, o.delivery_fee,
+         o.user_id, o.agent_id,
+         ds.name                  AS store_name,
+         ds.address               AS store_address,
+         a.name                   AS agent_name,
+         a.phone                  AS agent_phone,
+         a.current_latitude       AS agent_latitude,
+         a.current_longitude      AS agent_longitude,
+         (
+           SELECT json_agg(
+             json_build_object(
+               'from',      sh.from_status,
+               'to',        sh.to_status,
+               'changedAt', sh.created_at
+             ) ORDER BY sh.created_at
+           )
+           FROM order_status_history sh
+           WHERE sh.order_id = o.id
+         ) AS status_history
+       FROM orders o
+       JOIN dark_stores ds ON ds.id = o.store_id
+       LEFT JOIN agents  a  ON a.id  = o.agent_id
+       WHERE o.id = $1 AND o.deleted_at IS NULL`,
+      [orderId]
+    );
 
-  // RBAC
+    order = result.rows[0];
+    if (!order) throw new NotFoundError('Order not found');
+
+    // Cache the raw DB row for subsequent requests
+    await cache.setJSON(cacheKey, order, CACHE_TTL.orders);
+  }
+
+  // RBAC (always enforced, even on cached data)
   if (actor.role === 'customer' && Number(order.user_id) !== Number(actor.id)) {
     throw new AuthError('You can only track your own orders');
   }
@@ -596,6 +614,7 @@ async function getOrderTrack(orderId, actor) {
   }
 
   return {
+    _cached,
     orderId:    order.id,
     status:     order.status,
     placedAt:   order.placed_at,
@@ -756,6 +775,9 @@ async function agentNextStatusService(orderId, actor) {
     }
 
     await client.query('COMMIT');
+
+    // Bust order tracking cache
+    await cache.del(`order:track:${orderId}`);
 
     logger.info('Agent advanced order status', {
       orderId, fromStatus: order.status, toStatus: nextStatus, agentId: actor.agentId,

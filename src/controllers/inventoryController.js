@@ -3,8 +3,9 @@ const { getStoreInventory, restockProductService } = require('../services/invent
 async function getStoreInventoryHandler(req, res, next) {
   try {
     const storeId = Number(req.params.storeId);
-    const items = await getStoreInventory(storeId);
-    res.json({ success: true, data: items });
+    const result = await getStoreInventory(storeId);
+    res.set('X-Cache', result._cached ? 'HIT' : 'MISS');
+    res.json({ success: true, data: result.data });
   } catch (err) {
     next(err);
   }

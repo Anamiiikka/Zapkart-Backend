@@ -122,6 +122,8 @@ async function getOrderTrackHandler(req, res, next) {
   try {
     const orderId = Number(req.params.id);
     const result  = await getOrderTrack(orderId, req.user);
+    res.set('X-Cache', result._cached ? 'HIT' : 'MISS');
+    delete result._cached;
     res.json({ success: true, data: result });
   } catch (err) {
     next(err);
