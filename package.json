@@ -4,7 +4,9 @@
   "description": "Zapkart e-commerce backend API",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node db/migrate.js && node src/server.js",
+    "start:server": "node src/server.js",
+    "migrate": "node db/migrate.js",
     "dev": "nodemon src/server.js",
     "test": "jest --detectOpenHandles --forceExit",
     "test:watch": "jest --watch",

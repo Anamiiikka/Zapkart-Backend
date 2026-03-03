@@ -12,6 +12,7 @@ const { inventoryRouter } = require('./routes/inventoryRoutes');
 const { orderRouter } = require('./routes/orderRoutes');
 const { agentRouter } = require('./routes/agentRoutes');
 const { adminRouter } = require('./routes/adminRoutes');
+const { categoryRouter } = require('./routes/categoryRoutes');
 
 const app = express();
 
@@ -61,6 +62,7 @@ app.use('/api/v1/stores/:storeId/inventory', inventoryRouter);
 app.use('/api/v1/orders', orderRouter);
 app.use('/api/v1/agents', agentRouter);
 app.use('/api/v1/admin',  adminRouter);
+app.use('/api/v1/categories', categoryRouter);
 
 // 404 handler - pass to error handler for unified response
 app.use((req, res, next) => {
