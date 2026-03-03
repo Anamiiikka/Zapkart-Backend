@@ -91,6 +91,7 @@ A **production-ready** backend API for a dark-store quick-commerce platform that
 ```
 zapkart-backend/
 ├── db/
+│   ├── migrate.js                       # Idempotent migration runner (tracks applied files)
 │   ├── seed.js                          # Test data seeder
 │   └── migrations/
 │       ├── init.sql                     # Full schema + triggers
@@ -137,6 +138,7 @@ zapkart-backend/
 │   │   ├── healthRoutes.js              # /health + /ready
 │   │   ├── authRoutes.js                # Auth endpoints
 │   │   ├── productRoutes.js             # Product endpoints
+│   │   ├── categoryRoutes.js            # Category endpoints
 │   │   ├── storeRoutes.js               # Store endpoints
 │   │   ├── inventoryRoutes.js           # Inventory endpoints
 │   │   ├── orderRoutes.js               # Order endpoints
@@ -208,13 +210,15 @@ npm run dev
 ### Available Scripts
 
 ```bash
-npm run start          # Production server
+npm run start          # Run migrations + production server
+npm run start:server   # Production server (skip migrations)
 npm run dev            # Development with nodemon
+npm run migrate        # Run DB migrations only
 npm run test           # Run all tests
 npm run test:watch     # Watch mode
 npm run test:coverage  # Coverage report
 npm run seed           # Seed test data
-npm run db:migrate     # Run SQL migrations
+npm run db:migrate     # Run SQL migrations (legacy psql)
 node scripts/benchmark.js  # Run load tests (autocannon)
 ```
 
@@ -250,7 +254,13 @@ curl http://localhost:3000/ready
 | `GET` | `/api/v1/products` | — | List products (search, category, pagination) |
 | `GET` | `/api/v1/products/:id` | — | Get product by ID |
 
-### 🏪 Dark Stores — `/api/v1/stores`
+### �️ Categories — `/api/v1/categories`
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/v1/categories` | — | List all distinct product categories |
+
+### �🏪 Dark Stores — `/api/v1/stores`
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
@@ -661,6 +671,44 @@ npm run test:coverage
 | Nearest Store | O(log n) | O(1) |
 
 Where: n = total records, k = candidate stores (10), m = items per order, p = page size
+
+---
+
+## 🌐 Deployment
+
+### Live URL
+
+> **https://zapkart-backend-dib5.onrender.com**
+
+### Render (Recommended)
+
+The app is deployed on **Render** with a PostgreSQL + PostGIS database.
+
+| Setting | Value |
+|---------|-------|
+| **Build Command** | `npm install` |
+| **Start Command** | `npm start` |
+| **Environment** | `NODE_ENV=production` |
+| **Database** | Render PostgreSQL (PostGIS enabled) |
+
+**Required Environment Variables on Render:**
+
+```env
+DATABASE_URL=<Render internal PostgreSQL connection string>
+NODE_ENV=production
+JWT_SECRET=<your-secret-key-minimum-32-characters>
+REDIS_ENABLED=false
+```
+
+> `npm start` automatically runs `db/migrate.js` before starting the server.
+> Migrations are idempotent — safe to re-run on every deploy.
+
+### Railway (Alternative)
+
+Also deployable on Railway. Requires a **PostGIS-enabled** PostgreSQL service
+(Railway's default Postgres does not include PostGIS).
+
+Use the PostGIS template: https://railway.com/deploy/postgis
 
 ---
 
