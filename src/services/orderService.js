@@ -579,7 +579,7 @@ async function getOrderTrack(orderId, actor) {
          o.total_amount, o.delivery_fee,
          o.user_id, o.agent_id,
          ds.name                  AS store_name,
-         ds.address               AS store_address,
+         ds.area_name             AS store_address,
          a.name                   AS agent_name,
          a.phone                  AS agent_phone,
          a.current_latitude       AS agent_latitude,

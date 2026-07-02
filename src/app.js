@@ -99,7 +99,9 @@ const publicDir = path.join(__dirname, '..', 'public');
 const hasClient = fs.existsSync(path.join(publicDir, 'index.html'));
 
 if (hasClient) {
-  app.use(express.static(publicDir, { maxAge: '1h', index: 'index.html' }));
+  // No long-lived cache: the simulator's files aren't content-hashed, so caching
+  // would serve stale JS/CSS after a redeploy. etag lets the browser revalidate.
+  app.use(express.static(publicDir, { etag: true, maxAge: 0, index: 'index.html' }));
 
   // Fallback: any non-API GET returns index.html (single-page simulator).
   app.get(/^(?!\/api\/).*/, (req, res, next) => {

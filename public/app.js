@@ -164,11 +164,12 @@ function banner(html) {
 async function refresh() {
   if (!state.tokens.admin) return;
   const [ordersRes, agentsRes] = await Promise.all([
-    api('GET', '/orders/admin/all?page=1&pageSize=100', { token: state.tokens.admin }),
+    // /admin/orders returns a bare array enriched with customer_name, store_name
+    // and agent_name (unlike /orders/admin/all which only carries agent_id).
+    api('GET', '/admin/orders?pageSize=100', { token: state.tokens.admin }),
     api('GET', '/admin/agents', { token: state.tokens.admin }),
   ]);
-  // admin/all wraps rows in data.items (with pagination); admin/agents is a bare array.
-  state.orders = ordersRes.data?.items || (Array.isArray(ordersRes.data) ? ordersRes.data : []);
+  state.orders = Array.isArray(ordersRes.data) ? ordersRes.data : (ordersRes.data?.items || []);
   state.agents = Array.isArray(agentsRes.data) ? agentsRes.data : (agentsRes.data?.items || []);
   renderAll();
 }
@@ -253,8 +254,8 @@ function ticketHTML(o, color) {
       <span class="t-amt">₹${Math.round(Number(o.total_amount || 0))}</span>
     </div>
     <div class="t-meta">
-      <span>${esc(o.customer_name || 'customer')}</span>
-      ${eta ? `<span class="sep">·</span><span>${eta}</span>` : ''}
+      <span class="t-cust">${esc(o.customer_name || 'customer')}</span>
+      ${eta ? `<span class="sep">·</span><span class="t-eta">${eta}</span>` : ''}
     </div>
     <div class="t-foot">${agent}</div>
   </div>`;
@@ -302,7 +303,8 @@ function randomCart() {
   for (let i = 0; i < n && pool.length; i++) {
     const idx = Math.floor(Math.random() * pool.length);
     const p = pool.splice(idx, 1)[0];
-    items.push({ productId: p.id, quantity: 1 + Math.floor(Math.random() * 3) });
+    // API returns ids as strings; the order schema requires a numeric productId.
+    items.push({ productId: Number(p.id), quantity: 1 + Math.floor(Math.random() * 3) });
   }
   return items;
 }
