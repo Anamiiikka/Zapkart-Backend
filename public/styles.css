@@ -128,6 +128,12 @@ input { font-family: inherit; }
 .ctrl-actions .btn { min-width: 0; overflow: hidden; }
 .ctrl-actions .btn:nth-child(3) { grid-column: 1 / -1; }
 
+/* Auto-run toggle */
+.btn.toggle { margin-top: 8px; }
+.btn.toggle .toggle-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-4); flex: none; }
+.btn.toggle.on { background: var(--zap-glow); border-color: var(--zap-dim); color: var(--zap); }
+.btn.toggle.on .toggle-dot { background: var(--zap); box-shadow: 0 0 0 3px var(--zap-glow); animation: pulse 1.6s ease-in-out infinite; }
+
 .field.slim { display: flex; flex-direction: column; gap: 5px; }
 .field.slim span { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); }
 .field.slim input { height: 34px; width: 100%; background: var(--surface-0); border: 1px solid var(--rule); border-radius: var(--radius-sm); color: var(--text); font-family: var(--font-mono); font-size: 14px; padding: 0 10px; }

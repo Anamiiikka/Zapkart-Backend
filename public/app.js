@@ -332,12 +332,19 @@ async function placeWave(n) {
 
 // Advance every order one step: pending→confirm, confirmed→auto-assign, else next status.
 async function advanceOnePass() {
+  // Only try to dispatch when an agent is actually free, so Confirmed orders
+  // don't spam failed auto-assign calls while every agent is busy — they simply
+  // wait (correctly) until a delivery frees one up.
+  let freeAgents = state.agents.filter((a) => a.status === 'available').length;
   const tasks = [];
   for (const o of state.orders) {
     if (o.status === 'pending') {
       tasks.push(api('PATCH', `/orders/${o.id}/status`, { token: state.tokens.admin, body: { status: 'confirmed' } }).catch(() => {}));
     } else if (o.status === 'confirmed') {
-      tasks.push(api('POST', `/orders/${o.id}/auto-assign`, { token: state.tokens.admin, silent: false }).catch(() => {}));
+      if (freeAgents > 0) {
+        freeAgents -= 1;
+        tasks.push(api('POST', `/orders/${o.id}/auto-assign`, { token: state.tokens.admin }).catch(() => {}));
+      }
     } else {
       const next = { assigned: 'picking', picking: 'out_for_delivery', out_for_delivery: 'delivered' }[o.status];
       if (next) tasks.push(api('PATCH', `/orders/${o.id}/status`, { token: state.tokens.admin, body: { status: next } }).catch(() => {}));
@@ -386,6 +393,32 @@ $('advanceBtn').onclick = async () => {
   setBusy(true);
   try { await advanceOnePass(); await refresh(); toast('Advanced pipeline by one stage'); }
   finally { setBusy(false); }
+};
+
+// ── Auto-run: advance the pipeline one real stage every tick. Each move is a
+//    genuine backend transition — an order only progresses when the API accepts
+//    it (e.g. Confirmed orders wait until an agent is actually free). ──
+let autoTimer = null;
+$('autoRunBtn').onclick = () => {
+  const btn = $('autoRunBtn');
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+    btn.classList.remove('on');
+    $('autoRunLabel').textContent = 'Auto-run pipeline';
+    toast('Auto-run stopped', 'info');
+    return;
+  }
+  btn.classList.add('on');
+  $('autoRunLabel').textContent = 'Auto-run: on';
+  toast('Auto-run on — orders flow as the backend advances them', 'ok');
+  autoTimer = setInterval(async () => {
+    if (state.running) return; // never overlap a manual op mid-flight
+    try {
+      await advanceOnePass();
+      await refresh();
+    } catch { /* transient; next tick retries */ }
+  }, 1600);
 };
 
 $('runCycleBtn').onclick = async () => {
