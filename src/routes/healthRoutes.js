@@ -6,8 +6,10 @@ const { version } = require('../../package.json');
 
 const router = express.Router();
 
-// Root route
-router.get('/', (req, res) => {
+// NOTE: the root path "/" is intentionally NOT handled here — it is owned by
+// the frontend simulator (single-page app) served from frontend/dist.
+// A lightweight API status is available at GET /api instead.
+router.get('/api', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Zapkart backend is running',

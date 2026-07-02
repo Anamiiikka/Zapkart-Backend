@@ -483,6 +483,17 @@ async function changeOrderStatus({ orderId, newStatus, actor }) {
       }
     }
 
+    // 5b) Free the assigned agent once the order reaches a terminal state.
+    // Without this, an agent stays 'busy' forever when an admin closes an order
+    // via this endpoint (only the agent's own next-status path freed them before),
+    // which starves auto-assignment of available agents.
+    if ((newStatus === 'delivered' || newStatus === 'cancelled') && order.agent_id) {
+      await client.query(
+        `UPDATE agents SET status = 'available', updated_at = NOW() WHERE id = $1`,
+        [order.agent_id]
+      );
+    }
+
     // 6) Update order status
     const updatedOrder = await updateOrderStatus(client, orderId, newStatus);
 

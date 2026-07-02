@@ -23,7 +23,9 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    # PostGIS-enabled image — the schema calls CREATE EXTENSION postgis,
+    # which the plain postgres image cannot satisfy.
+    image: postgis/postgis:16-3.4
     ports:
       - "5432:5432"
     environment:
@@ -32,7 +34,11 @@ services:
       - POSTGRES_PASSWORD=postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/migrations:/docker-entrypoint-initdb.d
+      # NOTE: migrations are applied in the correct, tracked order by
+      # `node db/migrate.js` (run from the app's start command). We deliberately
+      # do NOT mount ./db/migrations into docker-entrypoint-initdb.d, because
+      # Postgres would execute those files alphabetically (add_*, agents, init…),
+      # applying them out of dependency order and breaking the schema.
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s

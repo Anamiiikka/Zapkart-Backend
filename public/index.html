@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
+  <title>Zapkart · Dark-Store Operations Simulator</title>
+  <meta name="description" content="Live operations console for the Zapkart quick-commerce backend — place orders, match dark stores, dispatch delivery agents, and drive the order pipeline end to end." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c0f14'/%3E%3Cpath d='M19.5 5 9 17.4h5.3L12.5 27 23 14.2h-5.4L19.5 5Z' fill='%23c6f135'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- ───────────── HUD header ───────────── -->
+  <header class="hud">
+    <div class="hud-brand">
+      <span class="brandmark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M13 3 5 13h6l-1 8 8-10h-6l1-8Z" fill="#c6f135"/></svg>
+      </span>
+      <div class="hud-name">
+        <span class="word">Zapkart</span>
+        <span class="code">Dark-store ops · simulator</span>
+      </div>
+    </div>
+
+    <div class="hud-readout">
+      <div class="cell"><span class="cl">live orders</span><span class="cv" id="mLive">0</span></div>
+      <div class="cell"><span class="cl">delivered</span><span class="cv" id="mDelivered">0</span></div>
+      <div class="cell"><span class="cl">agents free</span><span class="cv" id="mAgents">0/0</span></div>
+      <div class="cell"><span class="cl">revenue</span><span class="cv" id="mRevenue">₹0</span></div>
+      <div class="cell"><span class="cl">surge</span><span class="cv" id="mSurge">1.0×</span></div>
+      <div class="cell engine" id="enginePill"><span class="cl">engine</span><span class="cv"><i class="led" id="engineLed"></i><span id="engineLabel">linking…</span></span></div>
+      <div class="cell"><span class="cl">local</span><span class="cv mono" id="clock">—:—:—</span></div>
+    </div>
+  </header>
+
+  <!-- ───────────── operations deck ───────────── -->
+  <div class="deck">
+
+    <!-- control rail -->
+    <aside class="rail">
+      <div id="bootBanner" class="banner banner--info" style="display:none"></div>
+
+      <section class="ctrl">
+        <div class="ctrl-sign">Simulate</div>
+        <p class="lede">Drive the backend the way real traffic would — orders in, stores matched, agents dispatched, deliveries closed.</p>
+
+        <button class="btn primary block big" id="runCycleBtn">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l14 9-14 9V3Z"/></svg>
+          <span>Run full cycle</span>
+        </button>
+        <p class="hint">Places a wave of orders and drives every one from <em>pending</em> to <em>delivered</em>, live.</p>
+
+        <div class="ctrl-grid">
+          <label class="field slim">
+            <span>wave size</span>
+            <input type="number" id="waveSize" min="1" max="20" value="6" />
+          </label>
+          <button class="btn line" id="placeWaveBtn">Place wave</button>
+        </div>
+
+        <div class="ctrl-actions">
+          <button class="btn line sm" id="placeOneBtn">+ Order</button>
+          <button class="btn line sm" id="dispatchBtn">Auto-dispatch</button>
+          <button class="btn line sm" id="advanceBtn">Advance ▸</button>
+        </div>
+      </section>
+
+      <section class="ctrl">
+        <div class="ctrl-sign">System check</div>
+        <p class="lede">Fire one request at every capability and verify the response.</p>
+        <button class="btn line block" id="checkBtn">Run capability check</button>
+        <ul class="checklist" id="checklist"></ul>
+      </section>
+
+      <div class="rail-foot">
+        <a class="foot-link" id="apiDocsLink" href="/api" target="_blank" rel="noreferrer">API status ↗</a>
+        <span class="foot-sep">·</span>
+        <span class="mono dim">v1</span>
+      </div>
+    </aside>
+
+    <!-- board column -->
+    <main class="board-col">
+      <div class="kpis" id="kpis"></div>
+
+      <section class="board-wrap">
+        <div class="board-head">
+          <h2>Order pipeline</h2>
+          <span class="board-sub mono" id="boardSub">—</span>
+          <span class="spacer"></span>
+          <span class="live-tag"><i class="led live"></i> live · polling</span>
+        </div>
+        <div class="board" id="board"></div>
+      </section>
+
+      <div class="row-2">
+        <section class="panel">
+          <div class="panel-head"><h3>Fleet</h3><span class="sub mono" id="fleetSub">—</span></div>
+          <div class="panel-body flush"><div id="fleet" class="fleet"></div></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head"><h3>Throughput</h3><span class="sub mono">orders / recent</span></div>
+          <div class="panel-body">
+            <div class="bars" id="bars"></div>
+            <div class="tp-legend" id="tpLegend"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- API activity log -->
+    <aside class="log">
+      <div class="log-head">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="#c6f135" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>
+        <span class="title">API activity</span>
+        <span class="spacer"></span>
+        <button class="iconbtn" id="clearLogBtn" title="Clear">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>
+        </button>
+      </div>
+      <div class="log-body" id="logBody">
+        <div class="log-empty">No requests yet.<br/>Every call this console makes to the Zapkart API appears here — live.</div>
+      </div>
+      <div class="log-foot">
+        <span class="log-stat"><b id="logTotal">0</b> calls</span>
+        <span class="log-stat"><b id="logOk">0</b> ok</span>
+        <span class="log-stat">avg <b id="logAvg">0ms</b></span>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

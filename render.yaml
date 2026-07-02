@@ -1,0 +1,52 @@
+# Render Blueprint — a single web service that serves BOTH the Zapkart JSON API
+# (/api/v1/*) and the interactive simulator (served from /public at the root URL),
+# so opening the service URL lands directly on the console.
+#
+# Database: an external Neon Postgres (with PostGIS). We do NOT provision a
+# Render-managed database — instead paste your Neon pooled connection string into
+# the DATABASE_URL env var when Render prompts (it's kept secret, not committed).
+#
+# Deploy:  Render Dashboard → New → Blueprint → pick this repo → Apply →
+#          set DATABASE_URL to your Neon connection string.
+
+services:
+  - type: web
+    name: zapkart
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    # Migrations + idempotent seed run on boot via `npm start`.
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "20"
+      # Paste your Neon POOLED connection string here at deploy time, e.g.
+      #   postgresql://<user>:<pass>@<ep>-pooler.<region>.aws.neon.tech/neondb?sslmode=require
+      # sync:false keeps the secret out of the repo — Render prompts for it.
+      - key: DATABASE_URL
+        sync: false
+      # 44-char base64 secret generated once by Render (satisfies the 32-char min).
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      # Redis optional — cache falls back to an in-memory map when disabled.
+      - key: REDIS_ENABLED
+        value: "false"
+      # Same-origin simulator, but keep the API open to any origin for convenience.
+      - key: CORS_ORIGIN
+        value: "*"
+      # Headroom for the simulator's request bursts.
+      - key: RATE_LIMIT_MAX
+        value: "5000"
+      - key: ORDER_RATE_LIMIT_MAX
+        value: "1000"
+      - key: AUTH_RATE_LIMIT_MAX
+        value: "200"
+      - key: LOG_LEVEL
+        value: info

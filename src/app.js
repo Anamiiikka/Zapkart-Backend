@@ -1,6 +1,10 @@
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const helmet = require('helmet');
+const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const { env } = require('./config/env');
 const { requestLogger } = require('./middleware/requestLogger');
 const { errorHandler } = require('./middleware/errorHandler');
 const { NotFoundError } = require('./utils/errors');
@@ -16,8 +20,31 @@ const { categoryRouter } = require('./routes/categoryRoutes');
 
 const app = express();
 
-// Security middleware
-app.use(helmet());
+// Trust the platform proxy (Render) so rate-limit / secure cookies see real IPs.
+app.set('trust proxy', 1);
+
+// Security middleware.
+// CSP is disabled because this same service also serves the built React
+// simulator (inline styles/scripts from Vite) and loads remote product images.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
+
+// CORS — harmless for the same-origin simulator, but lets the API be called
+// from other origins too (configurable via CORS_ORIGIN).
+const corsOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
+app.use(
+  cors({
+    origin: corsOrigins.includes('*') ? true : corsOrigins,
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
 // Rate limiting (configurable via env for load testing)
 const limiter = rateLimit({
@@ -53,7 +80,8 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Routes
+// API + health routes (registered before the SPA so they always win).
+// healthRoutes exposes /health and /ready; the root path is owned by the SPA.
 app.use('/', healthRoutes);
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/products', productRouter);
@@ -63,6 +91,22 @@ app.use('/api/v1/orders', orderRouter);
 app.use('/api/v1/agents', agentRouter);
 app.use('/api/v1/admin',  adminRouter);
 app.use('/api/v1/categories', categoryRouter);
+
+// ── Serve the interactive simulator (single-service deploy) ──
+// The simulator is a plain static page in /public — no build step — served from
+// the same origin, so hitting the service URL lands the user directly on it.
+const publicDir = path.join(__dirname, '..', 'public');
+const hasClient = fs.existsSync(path.join(publicDir, 'index.html'));
+
+if (hasClient) {
+  app.use(express.static(publicDir, { maxAge: '1h', index: 'index.html' }));
+
+  // Fallback: any non-API GET returns index.html (single-page simulator).
+  app.get(/^(?!\/api\/).*/, (req, res, next) => {
+    if (req.method !== 'GET') return next();
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+}
 
 // 404 handler - pass to error handler for unified response
 app.use((req, res, next) => {

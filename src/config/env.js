@@ -25,6 +25,9 @@ const envSchema = z.object({
 
   // Logging
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+
+  // CORS — comma-separated allow-list, or '*' for any origin (default: same-origin/demo)
+  CORS_ORIGIN: z.string().default('*'),
 });
 
 const parsed = envSchema.safeParse(process.env);

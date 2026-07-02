@@ -8,7 +8,9 @@ const poolConfig = env.DATABASE_URL
       ssl: { rejectUnauthorized: false },
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      // Managed Postgres (Render/Neon) can be slow to accept the first connection
+      // after idle/deploy; a 2s timeout is too aggressive for a hosted DB.
+      connectionTimeoutMillis: 15000,
     }
   : {
       host: env.DB_HOST,

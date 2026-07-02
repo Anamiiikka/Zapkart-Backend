@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "Zapkart e-commerce backend API",
   "main": "src/server.js",
+  "engines": {
+    "node": ">=20 <23"
+  },
   "scripts": {
-    "start": "node db/migrate.js && node src/server.js",
+    "start": "node db/migrate.js && node db/seed.js && node src/server.js",
     "start:server": "node src/server.js",
     "migrate": "node db/migrate.js",
     "dev": "nodemon src/server.js",
@@ -24,6 +27,7 @@
   "type": "commonjs",
   "dependencies": {
     "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.3.1",
     "express": "^4.19.2",
     "express-rate-limit": "^8.2.1",
